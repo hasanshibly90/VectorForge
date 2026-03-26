@@ -5,6 +5,7 @@ import UploadPage from "./pages/UploadPage";
 import BatchPage from "./pages/BatchPage";
 import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
+import PromptsPage from "./pages/PromptsPage";
 import SharedViewPage from "./pages/SharedViewPage";
 
 const queryClient = new QueryClient({
@@ -20,6 +21,7 @@ export default function App() {
         <Routes>
           <Route element={<Layout />}>
             <Route path="/" element={<UploadPage />} />
+            <Route path="/prompts" element={<PromptsPage />} />
             <Route path="/batch" element={<BatchPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/login" element={<LoginPage />} />

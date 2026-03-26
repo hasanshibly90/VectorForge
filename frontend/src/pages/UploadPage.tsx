@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, ChevronDown, Download, Eye, FileCode, Layers, Play, Printer, RotateCcw, Share2, Sparkles, Upload, X } from "lucide-react";
 import { useDropzone } from "react-dropzone";
+import { useSearchParams } from "react-router-dom";
 import { getConversion, uploadFile, downloadConversion, shareConversion } from "../api/client";
 import type { Conversion } from "../types";
 import SVGPreview from "../components/SVGPreview";
@@ -27,10 +28,13 @@ export default function UploadPage() {
   const [showSettings, setShowSettings] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Settings
-  const [colormode, setColormode] = useState<"color" | "binary">("color");
-  const [detail, setDetail] = useState(5);
-  const [smoothing, setSmoothing] = useState(5);
+  // Settings (can be pre-filled from URL params via /prompts "Try This" button)
+  const [searchParams] = useSearchParams();
+  const [colormode, setColormode] = useState<"color" | "binary">(
+    (searchParams.get("colormode") as "color" | "binary") || "color"
+  );
+  const [detail, setDetail] = useState(Number(searchParams.get("detail")) || 5);
+  const [smoothing, setSmoothing] = useState(Number(searchParams.get("smoothing")) || 5);
 
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length === 0) return;

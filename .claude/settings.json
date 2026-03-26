@@ -94,7 +94,15 @@
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\" https://vf.aiosolibe.cloud)",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\" https://vf.aiosolibe.cloud/docs)",
       "Bash(curl -s -o /dev/null -w \"aiosolibe.cloud: HTTP %{http_code}\" https://aiosolibe.cloud)",
-      "Bash(gh run:*)"
+      "Bash(gh run:*)",
+      "Bash(xargs wc:*)",
+      "Bash(xargs head:*)",
+      "Bash(xargs cat:*)",
+      "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/\")",
+      "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/frontend/\")",
+      "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/data/\")",
+      "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/frontend/public/\")",
+      "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/.claude/\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\HP\\.claude\\projects\\c--Users-HP-My-Drive--supportibe-gmail-com--Raster-to-vector",

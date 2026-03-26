@@ -84,3 +84,23 @@ export interface Webhook {
   is_active: boolean;
   created_at: string;
 }
+
+// Prompt Gallery
+export type PromptCategory = "logos" | "illustrations" | "cnc-laser" | "icons" | "patterns" | "typography";
+export type AITool = "chatgpt" | "gemini" | "midjourney";
+
+export interface PromptEntry {
+  id: string;
+  title: string;
+  category: PromptCategory;
+  aiTool: AITool;
+  prompt: string;
+  expectedResult: string;
+  settings: {
+    colormode: "color" | "binary";
+    detail_level: number;
+    smoothing: number;
+  };
+  tags: string[];
+  difficulty: "beginner" | "intermediate" | "advanced";
+}

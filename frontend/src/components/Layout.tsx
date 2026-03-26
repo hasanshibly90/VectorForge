@@ -5,6 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 
 const navLinks = [
   { to: "/", label: "Convert" },
+  { to: "/prompts", label: "Prompts" },
   { to: "/batch", label: "Batch" },
   { to: "/dashboard", label: "Dashboard" },
 ];
