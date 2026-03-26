@@ -8,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base, get_db
+from app.models import *  # noqa: F401, F403 — register all models with Base.metadata
 from app.main import app
 
 # Use in-memory SQLite for tests
