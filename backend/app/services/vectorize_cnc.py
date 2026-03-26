@@ -500,27 +500,33 @@ def run_cnc_pipeline(
             masks[name], name, min_component_px=min_component_px
         )
 
-    # [4b] Border cleanup — remove stray pixels near image edges
-    # Anti-alias artifacts from JPEG/PNG compression often appear at borders
-    border_margin = 30
+    # [4b] Border cleanup — remove stray artifacts near image edges
+    # ChatGPT/AI-generated images often have gradient shadows at edges
+    border_margin = 100  # generous margin for edge artifacts
     for name in list(masks.keys()):
         mask = masks[name]
-        # Create border region
         border = np.zeros_like(mask)
         border[:border_margin, :] = True
         border[-border_margin:, :] = True
         border[:, :border_margin] = True
         border[:, -border_margin:] = True
-        # Remove small components that ONLY exist in the border
+
         labeled, n = ndimage.label(mask, structure=ndimage.generate_binary_structure(2, 2))
+        removed = 0
         for comp_id in range(1, n + 1):
             comp = labeled == comp_id
-            # If component is mostly in the border region, remove it
             border_pixels = (comp & border).sum()
             total_pixels = comp.sum()
-            if total_pixels < min_component_px * 2 and border_pixels > total_pixels * 0.3:
+            # Remove if: touches border AND is either small or mostly in border
+            if border_pixels > 0 and (
+                total_pixels < min_component_px * 5 or  # small components near border
+                border_pixels > total_pixels * 0.2       # >20% of component is in border zone
+            ):
                 mask[comp] = False
+                removed += 1
         masks[name] = mask
+        if removed > 0:
+            print(f"  {name}: removed {removed} border artifacts")
     print(f"  Border cleanup done (margin={border_margin}px)")
 
     # [5] Resolve overlaps & fill gaps
