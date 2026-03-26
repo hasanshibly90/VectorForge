@@ -102,7 +102,8 @@
       "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/frontend/\")",
       "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/data/\")",
       "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/frontend/public/\")",
-      "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/.claude/\")"
+      "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/.claude/\")",
+      "Bash(python -m pytest tests/ --tb=short)"
     ],
     "additionalDirectories": [
       "C:\\Users\\HP\\.claude\\projects\\c--Users-HP-My-Drive--supportibe-gmail-com--Raster-to-vector",
