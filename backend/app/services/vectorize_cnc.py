@@ -538,11 +538,6 @@ def run_cnc_pipeline(
     print(f"\n[1/7] Loading & upscaling...")
     img = load_and_upscale(str(input_path), target_resolution)
 
-    # [1b] Auto-crop to design content
-    # Detect background from corners, then crop to where non-background pixels exist
-    print(f"  Auto-cropping to design content...")
-    img = _auto_crop(img)
-
     # [2] Median Filter
     print(f"\n[2/7] Median filtering...")
     img = median_filter(img, median_kernel)
@@ -559,6 +554,35 @@ def run_cnc_pipeline(
         masks[name] = morphological_cleanup(
             masks[name], name, min_component_px=min_component_px
         )
+
+    # [4b] Keep only the LARGEST connected component per layer
+    # This is the nuclear option for edge artifacts: anything that isn't
+    # connected to the main design body gets removed. Corner rays, edge
+    # shadows, stray blobs — all gone. Only the main artwork survives.
+    struct_cc = ndimage.generate_binary_structure(2, 2)
+    for name in list(masks.keys()):
+        mask = masks[name]
+        labeled, n = ndimage.label(mask, structure=struct_cc)
+        if n <= 1:
+            continue
+        # Find the largest component
+        sizes = ndimage.sum(mask, labeled, range(1, n + 1))
+        largest_id = np.argmax(sizes) + 1
+        largest_size = sizes[largest_id - 1]
+        # Keep only components that are at least 10% the size of the largest
+        # This preserves intentional multi-part designs (like separate letters)
+        # while removing small stray artifacts
+        threshold = largest_size * 0.10
+        cleaned = np.zeros_like(mask)
+        kept = 0
+        for comp_id in range(1, n + 1):
+            if sizes[comp_id - 1] >= threshold:
+                cleaned[labeled == comp_id] = True
+                kept += 1
+        removed = n - kept
+        if removed > 0:
+            print(f"  {name}: kept {kept}/{n} components (removed {removed} disconnected fragments)")
+        masks[name] = cleaned
 
     # [5] Resolve overlaps & fill gaps
     print(f"\n[5/7] Resolving overlaps & gaps...")
