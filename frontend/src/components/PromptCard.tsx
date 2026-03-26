@@ -74,7 +74,7 @@ export default function PromptCard({ prompt }: PromptCardProps) {
 
       {/* Try This button */}
       <Link
-        to={`/?colormode=${prompt.settings.colormode}&detail=${prompt.settings.detail_level}&smoothing=${prompt.settings.smoothing}`}
+        to={`/convert?colormode=${prompt.settings.colormode}&detail=${prompt.settings.detail_level}&smoothing=${prompt.settings.smoothing}`}
         className="btn-primary text-center mt-auto !py-2.5 flex items-center justify-center gap-2"
       >
         <Sparkles className="w-3.5 h-3.5" />

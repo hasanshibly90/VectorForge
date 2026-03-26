@@ -5,6 +5,7 @@ import UploadPage from "./pages/UploadPage";
 import BatchPage from "./pages/BatchPage";
 import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
+import LandingPage from "./pages/LandingPage";
 import PromptsPage from "./pages/PromptsPage";
 import SharedViewPage from "./pages/SharedViewPage";
 
@@ -20,7 +21,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<Layout />}>
-            <Route path="/" element={<UploadPage />} />
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/convert" element={<UploadPage />} />
             <Route path="/prompts" element={<PromptsPage />} />
             <Route path="/batch" element={<BatchPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
