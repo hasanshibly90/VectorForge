@@ -1,0 +1,382 @@
+"""
+Conversion engine — wraps the CNC-grade potrace pipeline AND vtracer as a fast fallback.
+
+Each conversion produces a versioned output folder with ALL 5 output files:
+  {name}_combined.svg      — All color layers merged
+  {name}_300dpi.bmp         — 300 DPI print-ready bitmap
+  {name}_transparent.png    — RGBA with alpha transparency
+  {name}_layers.json        — Layer metadata
+  layers/{name}_{color}.svg — Individual per-layer SVGs
+"""
+
+import json
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+from collections import Counter
+
+from app.schemas.conversion import ConversionSettings
+
+
+@dataclass
+class LayerInfo:
+    name: str
+    color_hex: str
+    area_pct: float
+    svg_file: str
+
+
+@dataclass
+class ConversionResult:
+    combined_svg_path: Path | None = None
+    bmp_path: Path | None = None
+    png_path: Path | None = None
+    layers_json_path: Path | None = None
+    layer_svg_paths: list[Path] = field(default_factory=list)
+    viewer_html_path: Path | None = None
+    layers: list[LayerInfo] = field(default_factory=list)
+    processing_time_ms: int = 0
+
+
+def analyze_colors(input_path: Path, max_colors: int = 10) -> list[dict]:
+    """Analyze dominant colors in an image for threshold definition."""
+    img = Image.open(input_path).convert("RGB")
+    pixels = np.array(img).reshape(-1, 3)
+    quantized = (pixels // 32) * 32
+    counts = Counter(map(tuple, quantized))
+    total = len(pixels)
+
+    results = []
+    for color, count in counts.most_common(max_colors):
+        pct = count / total * 100
+        hex_c = f"#{int(color[0]):02x}{int(color[1]):02x}{int(color[2]):02x}"
+        results.append({
+            "rgb": [int(color[0]), int(color[1]), int(color[2])],
+            "hex": hex_c,
+            "percentage": round(float(pct), 1),
+            "pixel_count": int(count),
+        })
+    return results
+
+
+def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
+    """Auto-detect color layers from an image using KMeans + merge similar clusters.
+
+    Key improvements over naive KMeans:
+    1. Start with few clusters (3-4) to avoid splitting real colors
+    2. Merge clusters within 120 RGB distance (aggressively kills anti-alias edge colors)
+    3. Snap near-white to #ffffff, near-black to #000000
+    4. Use tight thresholds for CNC-grade output
+    """
+    from sklearn.cluster import KMeans
+
+    img = Image.open(input_path).convert("RGB")
+    pixels = np.array(img).reshape(-1, 3)
+
+    # Use FEWER clusters — most images have 2-4 real colors
+    # Anti-alias edges should NOT become separate clusters
+    kmeans = KMeans(n_clusters=min(4, max(2, len(set(map(tuple, (pixels[::50] // 64) * 64))))), n_init=10, random_state=42)
+    kmeans.fit(pixels[::10])
+    centers = kmeans.cluster_centers_.astype(int)
+    labels_sub = kmeans.predict(pixels[::10])
+    counts = np.bincount(labels_sub, minlength=len(centers))
+
+    # Merge similar clusters (RGB distance < 120)
+    # Aggressive merge kills anti-alias intermediate colors
+    merged = []
+    used = set()
+    for i in range(len(centers)):
+        if i in used:
+            continue
+        group = [i]
+        for j in range(i + 1, len(centers)):
+            if j in used:
+                continue
+            dist = np.sqrt(np.sum((centers[i].astype(float) - centers[j].astype(float)) ** 2))
+            if dist < 120:
+                group.append(j)
+                used.add(j)
+        used.add(i)
+        # Weighted average of merged centers
+        total_count = sum(counts[k] for k in group)
+        avg_center = np.average([centers[k] for k in group], weights=[counts[k] for k in group], axis=0).astype(int)
+        merged.append({"center": avg_center, "count": total_count})
+
+    # Sort by count (largest first = background)
+    merged.sort(key=lambda x: x["count"], reverse=True)
+
+    # Snap colors to pure values
+    def snap_color(c):
+        r, g, b = int(c[0]), int(c[1]), int(c[2])
+        if r > 200 and g > 200 and b > 200:
+            return np.array([255, 255, 255])
+        if r < 40 and g < 40 and b < 40:
+            return np.array([0, 0, 0])
+        return c
+
+    for m in merged:
+        m["center"] = snap_color(m["center"])
+
+    # Name colors
+    def name_color(c):
+        r, g, b = int(c[0]), int(c[1]), int(c[2])
+        if r > 200 and g > 200 and b > 200: return "white"
+        if r < 40 and g < 40 and b < 40: return "black"
+        if r > 120 and g < 80 and b < 80: return "red"
+        if g > 120 and r < 80 and b < 80: return "green"
+        if b > 120 and r < 80 and g < 80: return "blue"
+        if r > 150 and g > 120 and b < 80: return "yellow"
+        return f"color_{r:02x}{g:02x}{b:02x}"
+
+    # Background = largest cluster
+    bg = merged[0]
+    design_colors = merged[1:]  # Skip background
+
+    # Build color definitions with TIGHT thresholds
+    color_defs = {}
+    names_seen = set()
+    for m in design_colors:
+        c = m["center"]
+        name = name_color(c)
+        # Ensure unique name
+        base = name
+        n = 1
+        while name in names_seen:
+            name = f"{base}_{n}"
+            n += 1
+        names_seen.add(name)
+
+        hex_c = f"#{int(c[0]):02x}{int(c[1]):02x}{int(c[2]):02x}"
+        center = c.copy()
+        color_defs[name] = {
+            "threshold": lambda r, g, b, c=center: (
+                ((r.astype(int) - int(c[0])) ** 2 +
+                 (g.astype(int) - int(c[1])) ** 2 +
+                 (b.astype(int) - int(c[2])) ** 2) < 2500
+            ),
+            "hex": hex_c,
+        }
+
+    # Transparent = background
+    bg_center = bg["center"].copy()
+    transparent_color = lambda r, g, b, c=bg_center: (
+        ((r.astype(int) - int(c[0])) ** 2 +
+         (g.astype(int) - int(c[1])) ** 2 +
+         (b.astype(int) - int(c[2])) ** 2) < 2500
+    )
+
+    return color_defs, transparent_color
+
+
+def _map_settings_to_pipeline(settings: ConversionSettings) -> dict:
+    """Map user-facing settings to potrace pipeline parameters."""
+    # Detail level: higher = keep smaller components, more detail
+    # Range: detail 1 -> aggressive cleanup, detail 10 -> keep fine details
+    min_component = max(2000, 5000 - (settings.detail_level * 300))  # 4700 -> 2000
+    turdsize = max(100, 400 - (settings.detail_level * 30))  # 370 -> 100
+
+    # Smoothing maps to gaussian_sigma
+    sigma = 1.5 + (settings.smoothing * 0.2)  # 1.7 -> 3.5
+    sigma_bmp = sigma + 1.0
+
+    return {
+        "min_component_px": min_component,
+        "potrace_turdsize": turdsize,
+        "gaussian_sigma": round(sigma, 1),
+        "gaussian_sigma_bmp": round(sigma_bmp, 1),
+        "target_resolution": "4K",
+    }
+
+
+async def convert_raster_to_vector(
+    input_path: Path,
+    output_dir: Path,
+    settings: ConversionSettings,
+    color_defs: dict | None = None,
+    transparent_color=None,
+) -> ConversionResult:
+    """Convert raster image using the CNC-grade potrace pipeline.
+
+    Produces 5 output files per conversion:
+    - combined SVG, 300dpi BMP, transparent PNG, layers JSON, per-layer SVGs
+
+    Falls back to vtracer if potrace is not installed.
+    """
+    import subprocess
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    result = ConversionResult()
+    start = time.perf_counter()
+    stem = input_path.stem
+    if len(stem) > 30:
+        stem = stem[:30].rstrip("_")
+
+    # Check if potrace is available (system PATH or local binary)
+    potrace_available = False
+    potrace_bin = "potrace"
+    for candidate in ["potrace", str(Path(__file__).resolve().parent.parent.parent / "potrace.exe")]:
+        try:
+            subprocess.run([candidate, "--version"], capture_output=True, timeout=5)
+            potrace_bin = candidate
+            potrace_available = True
+            break
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+
+    if potrace_available:
+        result = await _convert_with_potrace(
+            input_path, output_dir, settings, stem, color_defs, transparent_color, potrace_bin
+        )
+    else:
+        result = await _convert_with_vtracer(input_path, output_dir, settings, stem)
+
+    elapsed = time.perf_counter() - start
+    result.processing_time_ms = int(elapsed * 1000)
+    return result
+
+
+async def _convert_with_potrace(
+    input_path: Path,
+    output_dir: Path,
+    settings: ConversionSettings,
+    stem: str,
+    color_defs: dict | None = None,
+    transparent_color=None,
+    potrace_bin: str = "potrace",
+) -> ConversionResult:
+    """Use the CNC-grade potrace pipeline from vectorize_cnc.py."""
+    from app.services.vectorize_cnc import run_cnc_pipeline
+
+    result = ConversionResult()
+
+    # Auto-detect colors if not provided
+    if color_defs is None:
+        color_defs, transparent_color = _auto_detect_colors(input_path)
+
+    # Map user settings to pipeline params
+    params = _map_settings_to_pipeline(settings)
+
+    # Run the full pipeline
+    pipeline_result = run_cnc_pipeline(
+        input_path=str(input_path),
+        output_dir=str(output_dir),
+        colors=color_defs,
+        transparent_color=transparent_color,
+        target_resolution=params["target_resolution"],
+        gaussian_sigma=params["gaussian_sigma"],
+        gaussian_sigma_bmp=params["gaussian_sigma_bmp"],
+        min_component_px=params["min_component_px"],
+        potrace_turdsize=params["potrace_turdsize"],
+        potrace_bin=potrace_bin,
+    )
+
+    # Map pipeline outputs to result
+    combined_svg = output_dir / f"{stem}_combined.svg"
+    if combined_svg.exists():
+        result.combined_svg_path = combined_svg
+
+    bmp = output_dir / f"{stem}_300dpi.bmp"
+    if bmp.exists():
+        result.bmp_path = bmp
+
+    png = output_dir / f"{stem}_transparent.png"
+    if png.exists():
+        result.png_path = png
+
+    layers_json = output_dir / f"{stem}_layers.json"
+    if layers_json.exists():
+        result.layers_json_path = layers_json
+        meta = json.loads(layers_json.read_text())
+        for layer in meta.get("layers", []):
+            result.layers.append(LayerInfo(
+                name=layer["name"],
+                color_hex=layer["color"],
+                area_pct=layer["area_pct"],
+                svg_file=layer["svg_file"],
+            ))
+
+    # Collect layer SVGs
+    layers_dir = output_dir / "layers"
+    if layers_dir.exists():
+        result.layer_svg_paths = sorted(layers_dir.glob("*.svg"))
+
+    # Generate viewer HTML
+    try:
+        from app.services.generate_viewer import generate_viewer
+        viewer_path = generate_viewer(str(output_dir))
+        if viewer_path.exists():
+            result.viewer_html_path = viewer_path
+    except Exception:
+        pass  # Viewer is optional
+
+    return result
+
+
+async def _convert_with_vtracer(
+    input_path: Path,
+    output_dir: Path,
+    settings: ConversionSettings,
+    stem: str,
+) -> ConversionResult:
+    """Fallback: use vtracer when potrace is not installed."""
+    import vtracer
+
+    result = ConversionResult()
+
+    # Ensure PNG input
+    if input_path.suffix.lower() != ".png":
+        png_path = output_dir / "input.png"
+        with Image.open(input_path) as img:
+            img.save(png_path, "PNG")
+        input_path = png_path
+
+    # Map settings
+    filter_speckle = max(1, 11 - settings.detail_level)
+    color_precision = max(1, settings.detail_level)
+    corner_threshold = 30 + (settings.smoothing * 10)
+    length_threshold = max(2.0, settings.smoothing * 1.5)
+    splice_threshold = max(10, settings.smoothing * 5)
+
+    combined_svg = output_dir / f"{stem}_combined.svg"
+
+    vtracer.convert_image_to_svg_py(
+        image_path=str(input_path),
+        out_path=str(combined_svg),
+        colormode=settings.colormode.value,
+        filter_speckle=filter_speckle,
+        color_precision=color_precision,
+        corner_threshold=corner_threshold,
+        length_threshold=length_threshold,
+        splice_threshold=splice_threshold,
+        mode="spline",
+    )
+    result.combined_svg_path = combined_svg
+
+    # Generate BMP and PNG from input
+    with Image.open(input_path) as img:
+        rgb = img.convert("RGB")
+        bmp_path = output_dir / f"{stem}_300dpi.bmp"
+        rgb.save(str(bmp_path), format="BMP", dpi=(300, 300))
+        result.bmp_path = bmp_path
+
+        rgba = img.convert("RGBA")
+        png_path = output_dir / f"{stem}_transparent.png"
+        rgba.save(str(png_path), dpi=(300, 300))
+        result.png_path = png_path
+
+    # Write minimal layers JSON
+    meta = {
+        "source": stem,
+        "dimensions": {"width": rgb.width, "height": rgb.height},
+        "dpi": 300,
+        "engine": "vtracer",
+        "layers": [{"name": "combined", "color": "#000000", "area_pct": 100.0, "svg_file": combined_svg.name}],
+    }
+    layers_json = output_dir / f"{stem}_layers.json"
+    layers_json.write_text(json.dumps(meta, indent=2))
+    result.layers_json_path = layers_json
+
+    return result
