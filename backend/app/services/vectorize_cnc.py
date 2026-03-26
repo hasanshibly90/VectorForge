@@ -572,7 +572,7 @@ def run_cnc_pipeline(
         # Keep only components that are at least 10% the size of the largest
         # This preserves intentional multi-part designs (like separate letters)
         # while removing small stray artifacts
-        threshold = largest_size * 0.10
+        threshold = largest_size * 0.01
         cleaned = np.zeros_like(mask)
         kept = 0
         for comp_id in range(1, n + 1):
