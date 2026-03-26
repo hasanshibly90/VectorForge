@@ -133,7 +133,16 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
 
     # Background = largest cluster
     bg = merged[0]
-    design_colors = merged[1:]  # Skip background
+    total_pixels = sum(m["count"] for m in merged)
+
+    # Drop tiny clusters (< 5% of image) — these are always anti-alias edge artifacts
+    design_colors = [
+        m for m in merged[1:]
+        if m["count"] / total_pixels > 0.05
+    ]
+    dropped = len(merged) - 1 - len(design_colors)
+    if dropped > 0:
+        print(f"  Dropped {dropped} tiny color clusters (< 5% of pixels)")
 
     # Build color definitions with TIGHT thresholds
     color_defs = {}
