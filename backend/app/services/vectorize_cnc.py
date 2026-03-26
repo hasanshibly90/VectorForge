@@ -500,34 +500,50 @@ def run_cnc_pipeline(
             masks[name], name, min_component_px=min_component_px
         )
 
-    # [4b] Border cleanup — remove stray artifacts near image edges
-    # ChatGPT/AI-generated images often have gradient shadows at edges
-    border_margin = 100  # generous margin for edge artifacts
-    for name in list(masks.keys()):
-        mask = masks[name]
-        border = np.zeros_like(mask)
-        border[:border_margin, :] = True
-        border[-border_margin:, :] = True
-        border[:, :border_margin] = True
-        border[:, -border_margin:] = True
+    # [4b] Content-aware border cleanup
+    # Find the bounding box of ALL design content combined, then mask out
+    # anything outside that box + margin. This removes corner rays, edge
+    # shadows, and any stray artifacts from AI-generated images.
+    all_design = np.zeros((h, w), dtype=bool)
+    for mask in masks.values():
+        all_design |= mask
 
-        labeled, n = ndimage.label(mask, structure=ndimage.generate_binary_structure(2, 2))
-        removed = 0
-        for comp_id in range(1, n + 1):
-            comp = labeled == comp_id
-            border_pixels = (comp & border).sum()
-            total_pixels = comp.sum()
-            # Remove if: touches border AND is either small or mostly in border
-            if border_pixels > 0 and (
-                total_pixels < min_component_px * 5 or  # small components near border
-                border_pixels > total_pixels * 0.2       # >20% of component is in border zone
-            ):
-                mask[comp] = False
-                removed += 1
-        masks[name] = mask
-        if removed > 0:
-            print(f"  {name}: removed {removed} border artifacts")
-    print(f"  Border cleanup done (margin={border_margin}px)")
+    # Find content bounding box
+    rows = np.any(all_design, axis=1)
+    cols = np.any(all_design, axis=0)
+    if rows.any() and cols.any():
+        rmin, rmax = np.where(rows)[0][[0, -1]]
+        cmin, cmax = np.where(cols)[0][[0, -1]]
+
+        # Shrink the valid area by 5% on each side to clip edge artifacts
+        margin_h = int((rmax - rmin) * 0.05)
+        margin_w = int((cmax - cmin) * 0.05)
+        crop_top = max(0, rmin + margin_h)
+        crop_bot = min(h, rmax - margin_h)
+        crop_left = max(0, cmin + margin_w)
+        crop_right = min(w, cmax - margin_w)
+
+        # Remove components that are mostly OUTSIDE the cropped content area
+        content_zone = np.zeros((h, w), dtype=bool)
+        content_zone[crop_top:crop_bot, crop_left:crop_right] = True
+
+        struct = ndimage.generate_binary_structure(2, 2)
+        for name in list(masks.keys()):
+            mask = masks[name]
+            labeled, n = ndimage.label(mask, structure=struct)
+            removed = 0
+            for comp_id in range(1, n + 1):
+                comp = labeled == comp_id
+                total_px = comp.sum()
+                inside_px = (comp & content_zone).sum()
+                # Remove if less than 50% of component is inside the content zone
+                if total_px > 0 and inside_px / total_px < 0.5:
+                    mask[comp] = False
+                    removed += 1
+            masks[name] = mask
+            if removed > 0:
+                print(f"  {name}: removed {removed} edge artifacts")
+        print(f"  Content zone: [{crop_top}:{crop_bot}, {crop_left}:{crop_right}] of {h}x{w}")
 
     # [5] Resolve overlaps & fill gaps
     print(f"\n[5/7] Resolving overlaps & gaps...")
