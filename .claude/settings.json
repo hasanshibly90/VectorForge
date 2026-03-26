@@ -70,7 +70,8 @@
       "Bash(ls -la \"c:/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/data/results/8daae583-a813-498c-9b1c-80ff532f570f/layers/\")",
       "Bash(curl -s \"http://127.0.0.1:8000/api/conversions/b2cf1e87-1713-4126-8df3-0db894c5c628/download?format=svg\")",
       "Bash(python -m pip install svglib reportlab)",
-      "Bash(python -m pip install svgpathtools)"
+      "Bash(python -m pip install svgpathtools)",
+      "Bash(__NEW_LINE_20ae334edb8218f4__ git:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\HP\\.claude\\projects\\c--Users-HP-My-Drive--supportibe-gmail-com--Raster-to-vector",
