@@ -91,6 +91,8 @@ body{background:var(--bg);color:var(--tx);font-family:system-ui,sans-serif;min-h
 .app{display:grid;grid-template-columns:310px 1fr;grid-template-rows:56px 1fr;min-height:100vh}
 header{grid-column:1/-1;background:var(--sf);border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;padding:0 20px}
 header h1{font-size:14px;font-weight:600}
+.back-btn{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);color:var(--tx);font-size:11px;font-weight:600;cursor:pointer;text-decoration:none;transition:.15s}
+.back-btn:hover{background:var(--bd);color:#fff}
 .mb{display:flex;gap:14px;font-size:11px;font-family:monospace;color:var(--dim)}
 .sb{background:var(--sf);border-right:1px solid var(--bd);overflow-y:auto;padding:14px}
 .sb h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin-bottom:10px}
@@ -122,7 +124,7 @@ header h1{font-size:14px;font-weight:600}
 .vl{position:absolute;bottom:14px;right:14px;background:rgba(0,0,0,.7);backdrop-filter:blur(8px);padding:5px 10px;border-radius:5px;font-size:10px;font-family:monospace;color:var(--dim)}
 @media(max-width:768px){.app{grid-template-columns:1fr;grid-template-rows:52px auto 1fr}.sb{max-height:40vh;border-right:none;border-bottom:1px solid var(--bd)}}
 </style></head><body><div class="app">
-<header><h1>Layer Viewer</h1><div class="mb" id="mb"></div></header>
+<header><div style="display:flex;align-items:center;gap:12px"><a href="/convert" class="back-btn">&larr; Back</a><h1>Layer Viewer</h1></div><div class="mb" id="mb"></div></header>
 <div class="sb" id="sb"></div>
 <div class="ca"><div class="cw" id="cw"></div><div class="vl" id="vl"></div></div>
 </div><script>
