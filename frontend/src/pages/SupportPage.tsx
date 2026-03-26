@@ -101,7 +101,7 @@ const FAQ_DATA: FAQSection[] = [
       },
       {
         q: "Can I self-host VectorForge?",
-        a: "Yes! Clone from GitHub, install potrace, run with Docker Compose or directly with uvicorn + npm. See the README for setup instructions. Enterprise plan includes dedicated self-hosting support.",
+        a: "Yes! VectorForge is self-hostable. Contact us for the Enterprise plan which includes dedicated setup support, Docker deployment guide, and priority assistance.",
       },
     ],
   },
@@ -191,10 +191,9 @@ export default function SupportPage() {
           <Link to="/contact" className="btn-primary flex items-center justify-center gap-2">
             <MessageSquare className="w-4 h-4" /> Contact Us
           </Link>
-          <a href="https://github.com/hasanshibly90/VectorForge/issues" target="_blank" rel="noopener noreferrer"
-            className="btn-secondary flex items-center justify-center gap-2">
-            Report an Issue
-          </a>
+          <Link to="/support" className="btn-secondary flex items-center justify-center gap-2">
+            Browse More FAQs
+          </Link>
         </div>
       </div>
     </div>

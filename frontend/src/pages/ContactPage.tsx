@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Check, Github, Globe, Mail, MessageSquare, Send } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Check, Globe, Mail, MessageSquare, Send } from "lucide-react";
 
 const SUBJECTS = [
   { value: "general", label: "General Inquiry" },
@@ -113,13 +114,9 @@ export default function ContactPage() {
               <a href="mailto:supportibe@gmail.com" className="flex items-center gap-3 text-sm text-dark-300 hover:text-accent-400 transition-colors">
                 <Mail className="w-4 h-4 flex-shrink-0" /> supportibe@gmail.com
               </a>
-              <a href="https://github.com/hasanshibly90/VectorForge" target="_blank" rel="noopener noreferrer"
+              <a href="https://aiosolibe.cloud" target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-3 text-sm text-dark-300 hover:text-accent-400 transition-colors">
-                <Github className="w-4 h-4 flex-shrink-0" /> GitHub Repository
-              </a>
-              <a href="https://vf.aiosolibe.cloud/docs" target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-3 text-sm text-dark-300 hover:text-accent-400 transition-colors">
-                <Globe className="w-4 h-4 flex-shrink-0" /> API Documentation
+                <Globe className="w-4 h-4 flex-shrink-0" /> aiosolibe.cloud
               </a>
             </div>
           </div>
@@ -143,14 +140,14 @@ export default function ContactPage() {
           </div>
 
           <div className="card !bg-accent-500/5 border-accent-500/20">
-            <h3 className="font-semibold text-white mb-2">Found a Bug?</h3>
+            <h3 className="font-semibold text-white mb-2">Need Help?</h3>
             <p className="text-xs text-dark-400 mb-3">
-              Open an issue on GitHub for the fastest resolution.
+              Check our FAQ for common questions and quick answers.
             </p>
-            <a href="https://github.com/hasanshibly90/VectorForge/issues/new" target="_blank" rel="noopener noreferrer"
+            <Link to="/support"
               className="btn-secondary !py-2 !text-xs w-full text-center block">
-              Open GitHub Issue
-            </a>
+              Browse FAQ
+            </Link>
           </div>
         </div>
       </div>

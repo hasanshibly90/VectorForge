@@ -117,8 +117,7 @@ export default function Layout() {
               <span className="font-semibold text-dark-400">VectorForge</span>
               <Link to="/support" className="hover:text-accent-400 transition-colors">FAQ</Link>
               <Link to="/contact" className="hover:text-accent-400 transition-colors">Contact</Link>
-              <a href="https://github.com/hasanshibly90/VectorForge" target="_blank" rel="noopener noreferrer" className="hover:text-accent-400 transition-colors">GitHub</a>
-              <a href="/docs" target="_blank" rel="noopener noreferrer" className="hover:text-accent-400 transition-colors">API Docs</a>
+              <Link to="/prompts" className="hover:text-accent-400 transition-colors">Prompts</Link>
             </div>
             <span className="text-xs text-dark-600 font-mono">v0.2.0</span>
           </div>

@@ -19,7 +19,7 @@ const FEATURES = [
   { icon: Download, title: "8 Export Formats", desc: "SVG, PDF, EPS, PNG, BMP, G-Code, JSON metadata, ZIP — one click." },
   { icon: Code2, title: "Developer API", desc: "REST API with JWT + API keys, batch upload, webhooks, usage stats." },
   { icon: BookOpen, title: "AI Prompt Gallery", desc: "12 curated prompts for ChatGPT, Gemini, Midjourney — copy and generate." },
-  { icon: Shield, title: "Self-Hostable", desc: "Docker deploy, your data stays on your server. No vendor lock-in." },
+  { icon: Shield, title: "Secure & Private", desc: "Your images are processed securely and never shared. Enterprise self-hosting available." },
 ];
 
 const PRICING = [
