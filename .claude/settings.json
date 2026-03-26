@@ -93,7 +93,8 @@
       "Bash(curl -s https://vf.aiosolibe.cloud/health)",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\" https://vf.aiosolibe.cloud)",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\" https://vf.aiosolibe.cloud/docs)",
-      "Bash(curl -s -o /dev/null -w \"aiosolibe.cloud: HTTP %{http_code}\" https://aiosolibe.cloud)"
+      "Bash(curl -s -o /dev/null -w \"aiosolibe.cloud: HTTP %{http_code}\" https://aiosolibe.cloud)",
+      "Bash(gh run:*)"
     ],
     "additionalDirectories": [
       "C:\\Users\\HP\\.claude\\projects\\c--Users-HP-My-Drive--supportibe-gmail-com--Raster-to-vector",

@@ -44,6 +44,61 @@ RESOLUTION_MAP = {
 }
 
 
+# --- Step 0: Auto-Crop to Design Content ------------------------------------
+
+def _auto_crop(img: Image.Image, padding_pct: float = 0.02) -> Image.Image:
+    """Crop image to actual design content, removing empty background borders.
+
+    Detects background color from the 4 corners, then finds the bounding box
+    where non-background pixels exist. Adds small padding. This eliminates
+    stray rays, shadows, and gradients that AI image generators add at edges.
+    """
+    pixels = np.array(img)
+    h, w = pixels.shape[:2]
+
+    # Sample corners to detect background color (take median of corner pixels)
+    corner_size = max(10, min(h, w) // 20)
+    corners = np.concatenate([
+        pixels[:corner_size, :corner_size].reshape(-1, 3),
+        pixels[:corner_size, -corner_size:].reshape(-1, 3),
+        pixels[-corner_size:, :corner_size].reshape(-1, 3),
+        pixels[-corner_size:, -corner_size:].reshape(-1, 3),
+    ])
+    bg_color = np.median(corners, axis=0).astype(int)
+
+    # Create mask of pixels that differ significantly from background
+    diff = np.sqrt(np.sum((pixels.astype(float) - bg_color.astype(float)) ** 2, axis=2))
+    content_mask = diff > 50  # threshold: 50 RGB euclidean distance from background
+
+    # Find bounding box of content
+    rows = np.any(content_mask, axis=1)
+    cols = np.any(content_mask, axis=0)
+
+    if not rows.any() or not cols.any():
+        return img  # no content detected, return as-is
+
+    rmin, rmax = np.where(rows)[0][[0, -1]]
+    cmin, cmax = np.where(cols)[0][[0, -1]]
+
+    # Add padding
+    pad_h = int((rmax - rmin) * padding_pct)
+    pad_w = int((cmax - cmin) * padding_pct)
+    rmin = max(0, rmin - pad_h)
+    rmax = min(h - 1, rmax + pad_h)
+    cmin = max(0, cmin - pad_w)
+    cmax = min(w - 1, cmax + pad_w)
+
+    cropped = img.crop((cmin, rmin, cmax + 1, rmax + 1))
+    new_w, new_h = cropped.size
+    if new_w < w * 0.5 or new_h < h * 0.5:
+        # Cropped too aggressively, keep original
+        print(f"  Auto-crop skipped (would remove >50% of image)")
+        return img
+
+    print(f"  Cropped: {w}x{h} -> {new_w}x{new_h} (removed {((w*h - new_w*new_h) / (w*h) * 100):.0f}% border)")
+    return cropped
+
+
 # --- Step 1: Load & Upscale -------------------------------------------------
 
 def load_and_upscale(input_path: str, target: str = "4K") -> Image.Image:
@@ -483,6 +538,11 @@ def run_cnc_pipeline(
     print(f"\n[1/7] Loading & upscaling...")
     img = load_and_upscale(str(input_path), target_resolution)
 
+    # [1b] Auto-crop to design content
+    # Detect background from corners, then crop to where non-background pixels exist
+    print(f"  Auto-cropping to design content...")
+    img = _auto_crop(img)
+
     # [2] Median Filter
     print(f"\n[2/7] Median filtering...")
     img = median_filter(img, median_kernel)
@@ -499,51 +559,6 @@ def run_cnc_pipeline(
         masks[name] = morphological_cleanup(
             masks[name], name, min_component_px=min_component_px
         )
-
-    # [4b] Content-aware border cleanup
-    # Find the bounding box of ALL design content combined, then mask out
-    # anything outside that box + margin. This removes corner rays, edge
-    # shadows, and any stray artifacts from AI-generated images.
-    all_design = np.zeros((h, w), dtype=bool)
-    for mask in masks.values():
-        all_design |= mask
-
-    # Find content bounding box
-    rows = np.any(all_design, axis=1)
-    cols = np.any(all_design, axis=0)
-    if rows.any() and cols.any():
-        rmin, rmax = np.where(rows)[0][[0, -1]]
-        cmin, cmax = np.where(cols)[0][[0, -1]]
-
-        # Shrink the valid area by 5% on each side to clip edge artifacts
-        margin_h = int((rmax - rmin) * 0.05)
-        margin_w = int((cmax - cmin) * 0.05)
-        crop_top = max(0, rmin + margin_h)
-        crop_bot = min(h, rmax - margin_h)
-        crop_left = max(0, cmin + margin_w)
-        crop_right = min(w, cmax - margin_w)
-
-        # Remove components that are mostly OUTSIDE the cropped content area
-        content_zone = np.zeros((h, w), dtype=bool)
-        content_zone[crop_top:crop_bot, crop_left:crop_right] = True
-
-        struct = ndimage.generate_binary_structure(2, 2)
-        for name in list(masks.keys()):
-            mask = masks[name]
-            labeled, n = ndimage.label(mask, structure=struct)
-            removed = 0
-            for comp_id in range(1, n + 1):
-                comp = labeled == comp_id
-                total_px = comp.sum()
-                inside_px = (comp & content_zone).sum()
-                # Remove if less than 50% of component is inside the content zone
-                if total_px > 0 and inside_px / total_px < 0.5:
-                    mask[comp] = False
-                    removed += 1
-            masks[name] = mask
-            if removed > 0:
-                print(f"  {name}: removed {removed} edge artifacts")
-        print(f"  Content zone: [{crop_top}:{crop_bot}, {crop_left}:{crop_right}] of {h}x{w}")
 
     # [5] Resolve overlaps & fill gaps
     print(f"\n[5/7] Resolving overlaps & gaps...")
