@@ -1,18 +1,14 @@
 name: Deploy to VPS
 
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
 
 jobs:
   deploy:
     name: Deploy to vf.aiosolibe.cloud
     runs-on: ubuntu-latest
-    needs: []
-    if: github.ref == 'refs/heads/master'
     steps:
-      - name: Deploy via Tailscale SSH
+      - name: Connect Tailscale
         uses: tailscale/github-action@v3
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
@@ -24,18 +20,8 @@ jobs:
           ssh -o StrictHostKeyChecking=no root@ibe-prod "bash -s" << 'REMOTE'
             cd /opt/vectorforge
             git pull origin master
-
-            # Backend
-            cd backend
-            source .venv/bin/activate
-            pip install -e . --quiet
-
-            # Frontend
-            cd ../frontend
-            npm ci --quiet
-            npm run build
-
-            # Restart
+            cd backend && source .venv/bin/activate && pip install -e . --quiet
+            cd ../frontend && npm ci --quiet && npm run build
             systemctl restart vectorforge
             sleep 3
             curl -s http://127.0.0.1:8100/health
