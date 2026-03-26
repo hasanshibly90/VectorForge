@@ -7,6 +7,8 @@ import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
 import LandingPage from "./pages/LandingPage";
 import PromptsPage from "./pages/PromptsPage";
+import ContactPage from "./pages/ContactPage";
+import SupportPage from "./pages/SupportPage";
 import SharedViewPage from "./pages/SharedViewPage";
 
 const queryClient = new QueryClient({
@@ -26,6 +28,8 @@ export default function App() {
             <Route path="/prompts" element={<PromptsPage />} />
             <Route path="/batch" element={<BatchPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/support" element={<SupportPage />} />
+            <Route path="/contact" element={<ContactPage />} />
             <Route path="/login" element={<LoginPage />} />
           </Route>
           <Route path="/s/:token" element={<SharedViewPage />} />

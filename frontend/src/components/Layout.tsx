@@ -110,10 +110,18 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      <footer className="border-t border-dark-800 py-4 sm:py-6">
-        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between text-xs text-dark-500">
-          <span>VectorForge</span>
-          <span className="font-mono">v0.1.0</span>
+      <footer className="border-t border-dark-800 py-6 sm:py-8">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-4 text-xs text-dark-500">
+              <span className="font-semibold text-dark-400">VectorForge</span>
+              <Link to="/support" className="hover:text-accent-400 transition-colors">FAQ</Link>
+              <Link to="/contact" className="hover:text-accent-400 transition-colors">Contact</Link>
+              <a href="https://github.com/hasanshibly90/VectorForge" target="_blank" rel="noopener noreferrer" className="hover:text-accent-400 transition-colors">GitHub</a>
+              <a href="/docs" target="_blank" rel="noopener noreferrer" className="hover:text-accent-400 transition-colors">API Docs</a>
+            </div>
+            <span className="text-xs text-dark-600 font-mono">v0.2.0</span>
+          </div>
         </div>
       </footer>
     </div>
