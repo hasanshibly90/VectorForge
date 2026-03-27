@@ -40,10 +40,11 @@ async def run_conversion(conversion_id: str) -> None:
             custom_colors_json = settings_data.pop("custom_colors", "")
             settings = ConversionSettings(**settings_data)
 
-            # Custom colors only used for binary/potrace mode
+            # Parse custom colors for both modes
             color_defs = None
             transparent_color = None
-            if custom_colors_json and settings.colormode.value == "binary":
+            custom_colors_hex = []
+            if custom_colors_json:
                 import json as _json
                 import numpy as np
                 try:
@@ -74,6 +75,10 @@ async def run_conversion(conversion_id: str) -> None:
                              (g.astype(int) - int(c[1])) ** 2 +
                              (b.astype(int) - int(c[2])) ** 2) < 3600
                         )
+                    # Extract hex list for color mode (vtracer preprocessing)
+                    custom_colors_hex = [c["hex"] for c in cc.get("colors", []) if "hex" in c]
+                    if trans_hex:
+                        custom_colors_hex.append(trans_hex)
                 except Exception:
                     pass
 
@@ -85,6 +90,7 @@ async def run_conversion(conversion_id: str) -> None:
                 settings=settings,
                 color_defs=color_defs,
                 transparent_color=transparent_color,
+                custom_colors_hex=custom_colors_hex or None,
             )
 
             # Populate all output paths

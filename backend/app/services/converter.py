@@ -228,6 +228,7 @@ async def convert_raster_to_vector(
     settings: ConversionSettings,
     color_defs: dict | None = None,
     transparent_color=None,
+    custom_colors_hex: list[str] | None = None,
 ) -> ConversionResult:
     """Convert raster image to vector.
 
@@ -259,7 +260,9 @@ async def convert_raster_to_vector(
         )
     else:
         # Color mode: use vtracer for native multi-color vectorization
-        result = await _convert_with_vtracer_full(input_path, output_dir, settings, stem)
+        result = await _convert_with_vtracer_full(
+            input_path, output_dir, settings, stem, custom_colors_hex=custom_colors_hex
+        )
 
     elapsed = time.perf_counter() - start
     result.processing_time_ms = int(elapsed * 1000)
@@ -350,6 +353,7 @@ async def _convert_with_vtracer_full(
     output_dir: Path,
     settings: ConversionSettings,
     stem: str,
+    custom_colors_hex: list[str] | None = None,
 ) -> ConversionResult:
     """Primary engine: vtracer for full-color native vectorization.
 
@@ -376,6 +380,20 @@ async def _convert_with_vtracer_full(
     with Image.open(input_path) as img:
         img_array = np.array(img.convert("RGB"))
     processed = preprocess_for_vectorization(img_array, preset=preset)
+
+    # If custom colors provided, snap all pixels to nearest custom color
+    if custom_colors_hex and len(custom_colors_hex) > 0:
+        centers = np.array([
+            [int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)]
+            for h in custom_colors_hex if len(h) >= 7
+        ], dtype=np.float32)
+        if len(centers) > 0:
+            h_img, w_img = processed.shape[:2]
+            flat = processed.reshape(-1, 3).astype(np.float32)
+            dists = np.sqrt(((flat[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2))
+            nearest = dists.argmin(axis=1)
+            snapped = centers[nearest].astype(np.uint8)
+            processed = snapped.reshape(h_img, w_img, 3)
 
     # Save preprocessed image as PNG for vtracer
     preprocessed_path = output_dir / "preprocessed.png"
@@ -418,6 +436,13 @@ async def _convert_with_vtracer_full(
         path_precision=path_precision,
     )
     result.combined_svg_path = combined_svg
+
+    # Post-trace SVG optimization: remove speckles, add IDs, optimize viewBox
+    try:
+        from app.services.svg_optimizer import optimize_svg
+        optimize_svg(combined_svg, min_path_length=30 if d >= 6 else 80)
+    except Exception:
+        pass
 
     # Parse SVG to extract layer info (colors + paths)
     layers = []

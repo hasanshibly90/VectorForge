@@ -115,3 +115,38 @@ def svg_to_gcode(
 
     gcode_path.write_text("\n".join(lines), encoding="utf-8")
     return gcode_path
+
+
+def svg_to_dxf(svg_path: Path, dxf_path: Path, scale: float = 1.0) -> Path:
+    """Convert SVG paths to DXF format using ezdxf.
+
+    Produces a proper DXF with layers matching SVG color groups.
+    """
+    import ezdxf
+    from svgpathtools import svg2paths
+
+    paths, attrs = svg2paths(str(svg_path))
+    doc = ezdxf.new("R2010")
+    msp = doc.modelspace()
+
+    for i, (path, attr) in enumerate(zip(paths, attrs)):
+        fill = attr.get("fill", "#000000")
+        layer_name = f"layer_{fill.replace('#', '')}"
+
+        # Ensure layer exists
+        if layer_name not in doc.layers:
+            doc.layers.add(layer_name)
+
+        for segment in path:
+            points = []
+            num_points = max(5, int(segment.length() * scale / 3))
+            for j in range(num_points + 1):
+                t = j / num_points
+                pt = segment.point(t)
+                points.append((pt.real * scale, -pt.imag * scale))
+
+            if len(points) >= 2:
+                msp.add_lwpolyline(points, dxfattribs={"layer": layer_name})
+
+    doc.saveas(str(dxf_path))
+    return dxf_path
