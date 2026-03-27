@@ -523,11 +523,11 @@ async def _convert_with_vtracer_full(
 ) -> ConversionResult:
     """Primary engine: raw vtracer trace + SVG color grouping post-process.
 
-    Strategy: NO preprocessing on the image (which always introduced artifacts).
-    Instead:
-    1. Let vtracer trace the RAW image (best quality, many colors)
-    2. Group similar colors in the SVG output by hue family
-    3. Recolor each group to one representative color
+    Strategy:
+    1. Upscale image for better resolution
+    2. Trace with vtracer (native multi-color)
+    3. Group colors by hue family in SVG output
+    4. Snap near-white/near-black to pure values
 
     This preserves tracing quality while producing clean color layers.
     """
@@ -537,10 +537,11 @@ async def _convert_with_vtracer_full(
     d = settings.detail_level
     s = settings.smoothing
 
-    # Step 1: Convert to PNG + upscale for smoother curves
-    # More pixels = smoother boundaries for vtracer to trace.
-    # This is the ONLY preprocessing that doesn't damage quality.
-    upscale_target = 3200  # ~3200px max dimension
+    # Step 1: Upscale + light bilateral filter for smoother tracing
+    # Upscale: more pixels = smoother curve boundaries
+    # Bilateral: smooths pixel staircase at edges WITHOUT blurring text/details
+    import cv2
+    upscale_target = 4800  # 3x the typical 1600px input
     with Image.open(input_path) as img:
         rgb = img.convert("RGB")
         w, h = rgb.size
@@ -548,8 +549,15 @@ async def _convert_with_vtracer_full(
         if scale > 1.0:
             new_w, new_h = int(w * scale), int(h * scale)
             rgb = rgb.resize((new_w, new_h), Image.LANCZOS)
+
+        # Bilateral filter on upscaled image — smooths pixel boundaries
+        img_array = np.array(rgb)
+        bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        smoothed = cv2.bilateralFilter(bgr, 5, 40, 40)
+        rgb_smoothed = cv2.cvtColor(smoothed, cv2.COLOR_BGR2RGB)
+
         png_path = output_dir / "input_upscaled.png"
-        rgb.save(str(png_path), "PNG")
+        Image.fromarray(rgb_smoothed).save(str(png_path), "PNG")
         input_path = png_path
 
     # Step 2: Trace RAW image with vtracer
