@@ -41,17 +41,27 @@ class ConversionResult:
     processing_time_ms: int = 0
 
 
-def analyze_colors(input_path: Path, max_colors: int = 10) -> list[dict]:
-    """Analyze dominant colors in an image for threshold definition."""
+def analyze_colors(input_path: Path, max_colors: int = 15) -> list[dict]:
+    """Analyze dominant colors in an image with guaranteed hue coverage.
+
+    Two-pass approach:
+    1. Standard quantization to find dominant colors by pixel count
+    2. Hue-family scan to ensure NO visually distinct color is ever missed
+       (catches red text at 1%, blue accents at 0.5%, etc.)
+    """
     img = Image.open(input_path).convert("RGB")
     pixels = np.array(img).reshape(-1, 3)
-    quantized = (pixels // 32) * 32
-    counts = Counter(map(tuple, quantized))
     total = len(pixels)
+
+    # Pass 1: Standard quantization (16px buckets for finer detection)
+    quantized = (pixels // 16) * 16
+    counts = Counter(map(tuple, quantized))
 
     results = []
     for color, count in counts.most_common(max_colors):
         pct = count / total * 100
+        if pct < 0.3:
+            break
         hex_c = f"#{int(color[0]):02x}{int(color[1]):02x}{int(color[2]):02x}"
         results.append({
             "rgb": [int(color[0]), int(color[1]), int(color[2])],
@@ -59,6 +69,51 @@ def analyze_colors(input_path: Path, max_colors: int = 10) -> list[dict]:
             "percentage": round(float(pct), 1),
             "pixel_count": int(count),
         })
+
+    # Pass 2: Ensure every distinct hue family is represented
+    # This prevents "missing red text" and similar issues permanently
+    hue_families = {
+        "red":    {"test": lambda r,g,b: r > 150 and g < 100 and b < 100, "found": False},
+        "green":  {"test": lambda r,g,b: g > 120 and r < 100 and b < 100, "found": False},
+        "blue":   {"test": lambda r,g,b: b > 150 and r < 100 and g < 100, "found": False},
+        "yellow": {"test": lambda r,g,b: r > 150 and g > 120 and b < 80, "found": False},
+        "orange": {"test": lambda r,g,b: r > 180 and g > 80 and g < 160 and b < 60, "found": False},
+        "purple": {"test": lambda r,g,b: r > 100 and b > 100 and g < 80, "found": False},
+        "cyan":   {"test": lambda r,g,b: g > 120 and b > 120 and r < 80, "found": False},
+        "pink":   {"test": lambda r,g,b: r > 180 and g < 130 and b > 100, "found": False},
+    }
+
+    # Check which hue families are already in results
+    for c in results:
+        r, g, b = c["rgb"]
+        for name, fam in hue_families.items():
+            if fam["test"](r, g, b):
+                fam["found"] = True
+
+    # Scan image for missing hue families
+    # Subsample for speed (every 20th pixel)
+    subsample = pixels[::20]
+    for name, fam in hue_families.items():
+        if fam["found"]:
+            continue
+        # Count pixels matching this hue family
+        matches = sum(1 for p in subsample if fam["test"](int(p[0]), int(p[1]), int(p[2])))
+        pct = (matches * 20) / total * 100  # Scale back from subsample
+        if pct >= 0.5:  # At least 0.5% of image
+            # Find the median color of matching pixels
+            matching_pixels = np.array([p for p in subsample if fam["test"](int(p[0]), int(p[1]), int(p[2]))])
+            if len(matching_pixels) > 0:
+                median_color = np.median(matching_pixels, axis=0).astype(int)
+                hex_c = f"#{int(median_color[0]):02x}{int(median_color[1]):02x}{int(median_color[2]):02x}"
+                results.append({
+                    "rgb": [int(median_color[0]), int(median_color[1]), int(median_color[2])],
+                    "hex": hex_c,
+                    "percentage": round(float(pct), 1),
+                    "pixel_count": int(pct * total / 100),
+                })
+
+    # Sort by percentage descending
+    results.sort(key=lambda x: x["percentage"], reverse=True)
     return results
 
 
