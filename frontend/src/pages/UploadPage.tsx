@@ -252,7 +252,7 @@ export default function UploadPage() {
       {/* Header */}
       <div className="text-center mb-8">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent-500/10 text-accent-400 text-xs font-semibold mb-3">
-          <Sparkles className="w-3 h-3" /> CNC-Grade Potrace Engine
+          <Sparkles className="w-3 h-3" /> Dual Engine: vtracer + Potrace
         </div>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-2 tracking-tight">
           Raster to <span className="text-accent-400">Vector</span>
@@ -635,13 +635,10 @@ function ResultPreview({ originalUrl, vectorUrl }: { originalUrl: string; vector
 
 const PIPELINE_STEPS = [
   { label: "Uploading image", duration: 2000 },
-  { label: "Upscaling to 4K", duration: 3000 },
-  { label: "Median filter (anti-alias removal)", duration: 3000 },
-  { label: "Color thresholding", duration: 2000 },
-  { label: "Morphological cleanup", duration: 3000 },
-  { label: "Resolving overlaps & gaps", duration: 2000 },
-  { label: "Potrace Bezier tracing", duration: 8000 },
-  { label: "Exporting SVG + BMP + PNG", duration: 5000 },
+  { label: "Analyzing colors", duration: 1500 },
+  { label: "Vectorizing paths (vtracer)", duration: 4000 },
+  { label: "Generating BMP + PNG", duration: 2000 },
+  { label: "Exporting all formats", duration: 1500 },
 ];
 
 function ConvertingProgress({ stage, conversionId }: { stage: string; conversionId?: string }) {
@@ -676,7 +673,7 @@ function ConvertingProgress({ stage, conversionId }: { stage: string; conversion
           <span className="text-2xl font-bold text-white font-mono">{secs}s</span>
         </div>
         <p className="text-sm text-dark-400">
-          {stage === "uploading" ? "Uploading..." : "Processing with Potrace pipeline"}
+          {stage === "uploading" ? "Uploading..." : "Vectorizing with vtracer engine"}
         </p>
       </div>
 

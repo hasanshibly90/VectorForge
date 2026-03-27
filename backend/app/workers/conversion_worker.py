@@ -40,10 +40,10 @@ async def run_conversion(conversion_id: str) -> None:
             custom_colors_json = settings_data.pop("custom_colors", "")
             settings = ConversionSettings(**settings_data)
 
-            # Parse custom colors if user provided them via color picker
+            # Custom colors only used for binary/potrace mode
             color_defs = None
             transparent_color = None
-            if custom_colors_json:
+            if custom_colors_json and settings.colormode.value == "binary":
                 import json as _json
                 import numpy as np
                 try:
@@ -75,9 +75,10 @@ async def run_conversion(conversion_id: str) -> None:
                              (b.astype(int) - int(c[2])) ** 2) < 3600
                         )
                 except Exception:
-                    pass  # Fall back to auto-detect
+                    pass
 
-            # Run CNC-grade pipeline (potrace) or vtracer fallback
+            # COLOR mode: vtracer (fast, native multi-color)
+            # BINARY mode: potrace (CNC-grade 2-color Bezier)
             conv_result = await convert_raster_to_vector(
                 input_path=input_path,
                 output_dir=result_dir,
