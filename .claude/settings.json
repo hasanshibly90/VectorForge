@@ -106,7 +106,8 @@
       "Bash(python -m pytest tests/ --tb=short)",
       "Bash(start \"\" \"C:\\\\Program Files\\\\Tailscale\\\\tailscale-ipn.exe\")",
       "Bash(\"/c/Program Files/Tailscale/tailscale.exe\" status)",
-      "Bash(ssh -o:*)"
+      "Bash(ssh -o:*)",
+      "Bash(python -c \"from app.main import app; print\\(''OK''\\)\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\HP\\.claude\\projects\\c--Users-HP-My-Drive--supportibe-gmail-com--Raster-to-vector",

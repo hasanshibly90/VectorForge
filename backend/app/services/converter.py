@@ -195,9 +195,17 @@ def _map_settings_to_pipeline(settings: ConversionSettings) -> dict:
     sigma = 1.5 + (settings.smoothing * 0.2)  # 1.7 -> 3.5
     sigma_bmp = sigma + 1.0
 
+    # Corner detection: lower alphamax = sharper corners, higher = smoother
+    # High detail wants sharp corners, high smoothing wants round corners
+    alphamax = max(0.5, 1.334 - (settings.detail_level - 5) * 0.08 + (settings.smoothing - 5) * 0.06)
+    # Optimize: higher = more aggressive curve simplification
+    optimize = max(0.5, 2.0 - (settings.detail_level - 5) * 0.1)
+
     return {
         "min_component_px": min_component,
         "potrace_turdsize": turdsize,
+        "potrace_alphamax": round(alphamax, 3),
+        "potrace_optimize": round(optimize, 2),
         "gaussian_sigma": round(sigma, 1),
         "gaussian_sigma_bmp": round(sigma_bmp, 1),
         "target_resolution": "4K",
@@ -283,6 +291,8 @@ async def _convert_with_potrace(
         gaussian_sigma_bmp=params["gaussian_sigma_bmp"],
         min_component_px=params["min_component_px"],
         potrace_turdsize=params["potrace_turdsize"],
+        potrace_alphamax=params.get("potrace_alphamax", 1.334),
+        potrace_optimize=params.get("potrace_optimize", 2.0),
         potrace_bin=potrace_bin,
     )
 

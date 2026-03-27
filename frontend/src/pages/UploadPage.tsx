@@ -389,8 +389,11 @@ export default function UploadPage() {
             </button>
           </div>
 
-          {/* Vector Preview */}
-          <SVGPreview url={downloadConversion(conversion.id, "svg")} />
+          {/* Preview with Original/Vector toggle */}
+          <ResultPreview
+            originalUrl={preview || downloadConversion(conversion.id, "original")}
+            vectorUrl={downloadConversion(conversion.id, "svg")}
+          />
 
           {/* Layers */}
           {conversion.layers && conversion.layers.length > 0 && (
@@ -483,6 +486,54 @@ export default function UploadPage() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+
+/* ── Result Preview with Original/Vector toggle ── */
+
+function ResultPreview({ originalUrl, vectorUrl }: { originalUrl: string; vectorUrl: string }) {
+  const [view, setView] = useState<"vector" | "original">("vector");
+
+  return (
+    <div className="card !p-3">
+      <div className="flex items-center justify-between mb-3 px-2">
+        <div className="flex items-center gap-2">
+          <Eye className="w-3.5 h-3.5 text-accent-400" />
+          <span className="text-xs font-medium text-dark-400">
+            {view === "vector" ? "Vector Output" : "Original Image"}
+          </span>
+        </div>
+        <div className="flex items-center gap-1 bg-dark-800 rounded-lg p-0.5">
+          <button
+            onClick={() => setView("vector")}
+            className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${
+              view === "vector" ? "bg-accent-500 text-white shadow-glow" : "text-dark-400 hover:text-dark-200"
+            }`}
+          >
+            Vector
+          </button>
+          <button
+            onClick={() => setView("original")}
+            className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${
+              view === "original" ? "bg-accent-500 text-white shadow-glow" : "text-dark-400 hover:text-dark-200"
+            }`}
+          >
+            Original
+          </button>
+        </div>
+      </div>
+      <div
+        className="rounded-xl overflow-auto max-h-[60vh]"
+        style={{ backgroundImage: "repeating-conic-gradient(#151520 0% 25%, #1a1a28 0% 50%)", backgroundSize: "16px 16px" }}
+      >
+        <img
+          src={view === "vector" ? vectorUrl : originalUrl}
+          alt={view === "vector" ? "Vector" : "Original"}
+          className="w-full object-contain"
+        />
+      </div>
     </div>
   );
 }

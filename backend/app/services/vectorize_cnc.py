@@ -487,6 +487,8 @@ def run_cnc_pipeline(
     gaussian_sigma_bmp: float = 3.5,
     min_component_px: int = 2000,
     potrace_turdsize: int = 200,
+    potrace_alphamax: float = 1.334,
+    potrace_optimize: float = 2.0,
     potrace_bin: str = "potrace",
 ) -> dict:
     """
@@ -603,6 +605,8 @@ def run_cnc_pipeline(
         path_xml = potrace_to_svg(
             smoothed, hex_color, f"{stem}_{name}", out,
             potrace_turdsize=potrace_turdsize,
+            potrace_alphamax=potrace_alphamax,
+            potrace_optimize=potrace_optimize,
             potrace_bin=potrace_bin,
         )
         layer_svgs[name] = path_xml
