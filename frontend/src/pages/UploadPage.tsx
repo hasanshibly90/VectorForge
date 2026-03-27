@@ -295,19 +295,33 @@ export default function UploadPage() {
           {/* Color Editor */}
           <ColorEditor colors={detectedColors} onChange={(c) => { setDetectedColors(c); setShowSegmented(false); setSegmentedUrl(""); }} previewUrl={preview} />
 
-          {/* Settings (collapsible on mobile) */}
-          <div className="card !p-0 overflow-hidden">
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="w-full flex items-center justify-between px-5 py-3 sm:hidden"
-            >
-              <span className="text-sm font-semibold text-white">Settings</span>
-              <ChevronDown className={`w-4 h-4 text-dark-400 transition-transform ${showSettings ? "rotate-180" : ""}`} />
-            </button>
-            <div className={`px-5 pb-5 pt-2 space-y-4 ${showSettings ? "block" : "hidden sm:block"}`}>
-              <p className="text-sm font-semibold text-white hidden sm:block">Settings</p>
+          {/* Quality Presets + Settings */}
+          <div className="card space-y-4">
+            <p className="text-xs font-medium text-dark-300 uppercase tracking-wider">Quality Preset</p>
+            <div className="grid grid-cols-4 gap-2">
+              {([
+                { label: "Low", desc: "Fast, simple shapes", d: 3, s: 7 },
+                { label: "Medium", desc: "Balanced quality", d: 5, s: 5 },
+                { label: "High", desc: "Detailed output", d: 7, s: 4 },
+                { label: "Ultra", desc: "Max detail, sharp", d: 9, s: 2 },
+              ] as const).map((preset) => {
+                const active = detail === preset.d && smoothing === preset.s;
+                return (
+                  <button key={preset.label}
+                    onClick={() => { setDetail(preset.d); setSmoothing(preset.s); }}
+                    className={`py-2.5 px-2 rounded-xl text-center transition-all ${
+                      active ? "bg-accent-500 text-white shadow-glow" : "bg-dark-700 text-dark-300 border border-dark-600 hover:border-accent-500/30"
+                    }`}>
+                    <span className="text-xs font-semibold block">{preset.label}</span>
+                    <span className={`text-[9px] block mt-0.5 ${active ? "text-white/70" : "text-dark-500"}`}>{preset.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
 
-              {/* Color mode */}
+            {/* Color mode */}
+            <div>
+              <p className="text-xs font-medium text-dark-300 uppercase tracking-wider mb-2">Color Mode</p>
               <div className="flex gap-2">
                 {(["color", "binary"] as const).map((m) => (
                   <button key={m} onClick={() => setColormode(m)}
@@ -316,9 +330,16 @@ export default function UploadPage() {
                     }`}>{m === "color" ? "Full Color" : "Monochrome"}</button>
                 ))}
               </div>
+            </div>
 
-              {/* Detail + Smoothing */}
-              <div className="grid grid-cols-2 gap-4">
+            {/* Advanced sliders (collapsible) */}
+            <button onClick={() => setShowSettings(!showSettings)}
+              className="flex items-center gap-1 text-[10px] text-dark-500 hover:text-dark-300 transition-colors">
+              <ChevronDown className={`w-3 h-3 transition-transform ${showSettings ? "rotate-180" : ""}`} />
+              Advanced settings
+            </button>
+            {showSettings && (
+              <div className="grid grid-cols-2 gap-4 pt-1">
                 <div>
                   <div className="flex justify-between text-xs mb-1">
                     <span className="text-dark-300">Detail</span>
@@ -336,7 +357,7 @@ export default function UploadPage() {
                     className="w-full accent-accent-500 h-1.5 bg-dark-700 rounded-full appearance-none" />
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* CONVERT BUTTON */}
