@@ -249,6 +249,79 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
     return color_defs, transparent_color
 
 
+def _snap_to_palette(img: np.ndarray, centers: np.ndarray) -> np.ndarray:
+    """Snap every pixel to the nearest color in the palette."""
+    h, w = img.shape[:2]
+    flat = img.reshape(-1, 3).astype(np.float32)
+    dists = ((flat[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
+    nearest = dists.argmin(axis=1)
+    return centers[nearest].astype(np.uint8).reshape(h, w, 3)
+
+
+def _snap_to_hue_families(img: np.ndarray) -> np.ndarray:
+    """Group ALL pixels by hue family and snap each family to ONE representative color.
+
+    This is THE key function for clean vectorization:
+    - All yellow/gold shades → one yellow
+    - All green shades → one green
+    - All red shades → one red
+    - All black/dark shades → one black
+    - All white/light shades → one white
+    - Remaining → nearest family
+
+    Works on both flat AND gradient images because it groups by HUE, not by exact color.
+    """
+    h, w = img.shape[:2]
+    pixels = img.reshape(-1, 3)
+    r, g, b = pixels[:, 0].astype(int), pixels[:, 1].astype(int), pixels[:, 2].astype(int)
+
+    # Define hue families with their detection criteria
+    families = {
+        "white":  (r > 200) & (g > 200) & (b > 200),
+        "black":  (r < 50) & (g < 50) & (b < 50),
+        "gray":   (np.abs(r - g) < 30) & (np.abs(r - b) < 30) & (r >= 50) & (r <= 200),
+        "red":    (r > 140) & (g < 100) & (b < 100),
+        "green":  (g > 100) & (r < 120) & (b < 100),
+        "blue":   (b > 140) & (r < 100) & (g < 100),
+        "yellow": (r > 140) & (g > 110) & (b < 100),
+        "orange": (r > 160) & (g > 70) & (g < 150) & (b < 80),
+        "purple": (r > 80) & (b > 80) & (g < 80),
+        "cyan":   (g > 100) & (b > 100) & (r < 80),
+        "pink":   (r > 160) & (g < 130) & (b > 80) & (b < 180),
+        "brown":  (r > 100) & (r < 180) & (g > 50) & (g < 120) & (b < 80),
+    }
+
+    # Find the representative color (median) for each family that has enough pixels
+    palette = []
+    family_masks = {}
+    total = len(pixels)
+
+    for name, mask in families.items():
+        count = mask.sum()
+        if count > total * 0.005:  # At least 0.5% of image
+            family_pixels = pixels[mask]
+            median_color = np.median(family_pixels, axis=0).astype(int)
+            # Snap to clean values for common colors
+            if name == "white":
+                median_color = np.array([255, 255, 255])
+            elif name == "black":
+                median_color = np.array([0, 0, 0])
+            palette.append(median_color.astype(np.float32))
+            family_masks[name] = mask
+
+    if len(palette) < 2:
+        return img  # Not enough families detected, return as-is
+
+    # Assign EVERY pixel to nearest palette color
+    centers = np.array(palette, dtype=np.float32)
+    flat = pixels.astype(np.float32)
+    dists = ((flat[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
+    nearest = dists.argmin(axis=1)
+    result = centers[nearest].astype(np.uint8).reshape(h, w, 3)
+
+    return result
+
+
 def _detect_gradients(img: np.ndarray) -> bool:
     """Detect if an image contains significant gradient regions.
 
@@ -450,37 +523,23 @@ async def _convert_with_vtracer_full(
     else:
         preset = "photo"
 
-    # Strategy: auto-detect if image has gradients, choose approach:
-    # - FLAT image (logo, icon): snap to detected colors → clean flat SVG
-    # - GRADIENT image (ribbon, photo): let vtracer handle natively → smooth blending
-    # - CUSTOM colors provided: always snap to user's colors
+    # Strategy: ALWAYS group pixels by hue family for clean vectorization.
+    # All yellows → one yellow, all greens → one green, etc.
+    # This works for BOTH flat and gradient images.
     with Image.open(input_path) as img:
         processed = np.array(img.convert("RGB"))
 
-    # Auto-detect gradient presence
-    has_gradients = _detect_gradients(processed)
-
-    # Decide snapping strategy
-    snap_colors = custom_colors_hex  # User explicitly set colors
-    if not snap_colors and not has_gradients:
-        # Flat image with no gradients — auto-detect and snap for clean output
-        analyzed = analyze_colors(input_path, max_colors=15)
-        snap_colors = [c["hex"] for c in analyzed if c["percentage"] > 0.8]
-        snap_colors = snap_colors[:12]
-
-    if snap_colors and len(snap_colors) >= 2:
+    if custom_colors_hex and len(custom_colors_hex) >= 2:
+        # User explicitly set colors — snap to those
         centers = np.array([
             [int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)]
-            for h in snap_colors if len(h) >= 7
+            for h in custom_colors_hex if len(h) >= 7
         ], dtype=np.float32)
         if len(centers) >= 2:
-            h_img, w_img = processed.shape[:2]
-            flat = processed.reshape(-1, 3).astype(np.float32)
-            # Use squared distance (faster, same result for argmin)
-            dists = ((flat[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
-            nearest = dists.argmin(axis=1)
-            snapped = centers[nearest].astype(np.uint8)
-            processed = snapped.reshape(h_img, w_img, 3)
+            processed = _snap_to_palette(processed, centers)
+    else:
+        # Auto: detect focused priority colors by hue family
+        processed = _snap_to_hue_families(processed)
 
     # Save preprocessed image as PNG for vtracer
     preprocessed_path = output_dir / "preprocessed.png"
