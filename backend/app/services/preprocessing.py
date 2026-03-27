@@ -33,27 +33,26 @@ PRESETS = {
     },
     "artwork": {
         "denoise": True,
-        "denoise_strength": 7,
-        "contrast": None,
-        "sharpen": False,
-        "upscale_target": 3072,
-        "bilateral": True,
-        "bilateral_d": 9,
-        "bilateral_sigma_color": 75,
-        "bilateral_sigma_space": 75,
-        "quantize_colors": 16,      # Reduce to 16 flat colors
-    },
-    "logo": {
-        "denoise": True,
         "denoise_strength": 5,
         "contrast": None,
         "sharpen": False,
-        "upscale_target": 4096,
+        "upscale_target": 2048,     # Was 3072 — too slow
         "bilateral": True,
         "bilateral_d": 7,
         "bilateral_sigma_color": 60,
         "bilateral_sigma_space": 60,
-        "quantize_colors": 12,      # Logos: 12 flat colors max
+        "quantize_colors": 16,
+    },
+    "logo": {
+        "denoise": False,           # Logos don't need denoise (already clean)
+        "contrast": None,
+        "sharpen": False,
+        "upscale_target": 2048,     # 2048 is enough (was 4096 — too slow)
+        "bilateral": True,
+        "bilateral_d": 5,           # Smaller kernel = faster
+        "bilateral_sigma_color": 50,
+        "bilateral_sigma_space": 50,
+        "quantize_colors": 12,
     },
 }
 

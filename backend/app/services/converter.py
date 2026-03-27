@@ -437,12 +437,8 @@ async def _convert_with_vtracer_full(
     )
     result.combined_svg_path = combined_svg
 
-    # Post-trace SVG optimization: remove speckles, add IDs, optimize viewBox
-    try:
-        from app.services.svg_optimizer import optimize_svg
-        optimize_svg(combined_svg, min_path_length=30 if d >= 6 else 80)
-    except Exception:
-        pass
+    # Note: SVG optimizer disabled — was stripping xmlns namespace causing
+    # broken rendering in <img> tags. vtracer output is already clean.
 
     # Parse SVG to extract layer info (colors + paths)
     layers = []
