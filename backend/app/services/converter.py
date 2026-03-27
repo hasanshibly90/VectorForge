@@ -537,40 +537,44 @@ async def _convert_with_vtracer_full(
     d = settings.detail_level
     s = settings.smoothing
 
-    # Step 1: Upscale + light bilateral filter for smoother tracing
-    # Upscale: more pixels = smoother curve boundaries
-    # Bilateral: smooths pixel staircase at edges WITHOUT blurring text/details
+    # Step 1: Premium preprocessing for smooth curves
+    # 1. Upscale 4x to 6400px — maximum resolution for curve tracing
+    # 2. Gaussian blur — smooths pixel staircase edges
+    # 3. Bilateral filter — preserves sharp edges while smoothing regions
     import cv2
-    upscale_target = 4800  # 3x the typical 1600px input
+    upscale_target = 6400
     with Image.open(input_path) as img:
         rgb = img.convert("RGB")
-        w, h = rgb.size
-        scale = upscale_target / max(w, h)
+        orig_w, orig_h = rgb.size
+        scale = upscale_target / max(orig_w, orig_h)
         if scale > 1.0:
-            new_w, new_h = int(w * scale), int(h * scale)
+            new_w, new_h = int(orig_w * scale), int(orig_h * scale)
             rgb = rgb.resize((new_w, new_h), Image.LANCZOS)
 
-        # Bilateral filter on upscaled image — smooths pixel boundaries
         img_array = np.array(rgb)
         bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-        smoothed = cv2.bilateralFilter(bgr, 5, 40, 40)
-        rgb_smoothed = cv2.cvtColor(smoothed, cv2.COLOR_BGR2RGB)
 
+        # Light Gaussian blur to smooth pixel staircase (sigma=1.0)
+        blurred = cv2.GaussianBlur(bgr, (0, 0), 1.0)
+
+        # Bilateral filter to sharpen edges back while keeping smooth regions
+        smoothed = cv2.bilateralFilter(blurred, 7, 50, 50)
+
+        rgb_smoothed = cv2.cvtColor(smoothed, cv2.COLOR_BGR2RGB)
         png_path = output_dir / "input_upscaled.png"
         Image.fromarray(rgb_smoothed).save(str(png_path), "PNG")
         input_path = png_path
 
-    # Step 2: Trace RAW image with vtracer
-    # ALWAYS use stacked mode — fills entire canvas with no gaps.
-    # Params tuned for SMOOTH curves suitable for CNC cutting.
-    filter_speckle = max(2, 8 - d)               # Higher = removes more tiny specks
-    color_precision = min(8, max(5, d))           # Color accuracy
-    layer_difference = max(4, 20 - d * 2)         # Lower = fewer gaps
-    corner_threshold = max(60, 40 + s * 10)       # HIGHER = smoother corners (was 20+s*7)
-    length_threshold = max(3.0, 2.0 + s * 0.8)   # LONGER segments = smoother (was 1.0+s*0.4)
-    splice_threshold = max(40, 20 + s * 8)        # HIGHER = smoother splices (was 10+s*5)
-    path_precision = min(8, max(3, d))
-    max_iterations = min(15, max(8, d + 3))
+    # Step 2: Trace with vtracer — PREMIUM smoothing settings
+    # Stacked mode fills gaps. All params tuned for maximum curve smoothness.
+    filter_speckle = max(2, 8 - d)
+    color_precision = 8                            # Maximum color accuracy
+    layer_difference = max(4, 20 - d * 2)
+    corner_threshold = max(90, 60 + s * 12)        # Very smooth corners
+    length_threshold = max(4.0, 3.0 + s * 1.0)    # Long smooth segments
+    splice_threshold = max(60, 30 + s * 10)        # Smooth splices
+    path_precision = 8                             # Maximum path precision
+    max_iterations = 15                            # Maximum convergence
     hierarchical = "stacked"
 
     combined_svg = output_dir / f"{stem}_combined.svg"
