@@ -290,23 +290,36 @@ def _snap_to_hue_families(img: np.ndarray) -> np.ndarray:
         "pink":   (r > 150) & (b > 70) & (g < 120),
     }
 
-    # Find the representative color (median) for each family that has enough pixels
+    # Find the representative color (median) for each family
     palette = []
-    family_masks = {}
+    palette_names = []
     total = len(pixels)
+    bg_index = -1  # Track which palette entry is background
 
     for name, mask in families.items():
         count = mask.sum()
         if count > total * 0.005:  # At least 0.5% of image
             family_pixels = pixels[mask]
             median_color = np.median(family_pixels, axis=0).astype(int)
-            # Snap to clean values for common colors
+
+            # Snap common colors to pure values
             if name == "white":
                 median_color = np.array([255, 255, 255])
             elif name == "black":
                 median_color = np.array([0, 0, 0])
+
+            # Rule: if any family > 30% of pixels, it's the background
+            # Lock it to pure white/black so design pixels don't leak into it
+            if count > total * 0.30:
+                if name == "white" or name == "gray":
+                    median_color = np.array([255, 255, 255])
+                    bg_index = len(palette)
+                elif name == "black":
+                    median_color = np.array([0, 0, 0])
+                    bg_index = len(palette)
+
             palette.append(median_color.astype(np.float32))
-            family_masks[name] = mask
+            palette_names.append(name)
 
     if len(palette) < 2:
         return img  # Not enough families detected, return as-is
@@ -315,6 +328,12 @@ def _snap_to_hue_families(img: np.ndarray) -> np.ndarray:
     centers = np.array(palette, dtype=np.float32)
     flat = pixels.astype(np.float32)
     dists = ((flat[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
+
+    # If background detected, increase its distance penalty so design pixels
+    # don't accidentally get assigned to background
+    if bg_index >= 0:
+        dists[:, bg_index] *= 1.5  # Make background 50% harder to match
+
     nearest = dists.argmin(axis=1)
     result = centers[nearest].astype(np.uint8).reshape(h, w, 3)
 
