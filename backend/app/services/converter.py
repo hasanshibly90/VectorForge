@@ -582,6 +582,15 @@ async def _convert_with_vtracer_full(
     except Exception:
         layer_info = []
 
+    # Step 3b: Smooth paths — RDP simplification + cubic Bezier refit
+    # Higher smoothing setting = more aggressive simplification
+    try:
+        from app.services.path_smoother import smooth_svg_paths
+        epsilon = max(1.0, s * 0.5)  # smoothing 1→0.5, 5→2.5, 10→5.0
+        smooth_svg_paths(combined_svg, epsilon=epsilon, num_samples=40)
+    except Exception:
+        pass  # Smoothing is optional — don't break conversion if it fails
+
     result.combined_svg_path = combined_svg
 
     # Build layer list from grouper output
