@@ -249,6 +249,26 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
     return color_defs, transparent_color
 
 
+def _detect_gradients(img: np.ndarray) -> bool:
+    """Detect if an image contains significant gradient regions.
+
+    Simple and reliable: count total unique colors in the image.
+    - Flat logo/icon: < 500 unique colors (after 16-level quantization)
+    - Gradient/photo: > 500 unique colors (continuous color transitions)
+
+    This works because flat-color images have sharp boundaries with very
+    few unique color values, while gradients create thousands of shades.
+    """
+    # Subsample for speed (every 5th pixel)
+    sub = img[::5, ::5]
+    # Quantize to 16-level buckets
+    quantized = (sub // 16) * 16
+    unique_colors = len(set(map(tuple, quantized.reshape(-1, 3))))
+    # Flat logos: 3-30 unique colors. Gradient images: 50+.
+    # JPEG compression adds noise, so real-world gradient images have 100+.
+    return unique_colors > 50
+
+
 def _map_settings_to_pipeline(settings: ConversionSettings) -> dict:
     """Map user-facing settings to potrace pipeline parameters."""
     # Detail level: higher = keep smaller components, more detail
@@ -430,16 +450,24 @@ async def _convert_with_vtracer_full(
     else:
         preset = "photo"
 
-    # Strategy:
-    # - If user provided custom colors: snap pixels to those colors (flat output)
-    # - If no custom colors: let vtracer handle the image natively
-    #   (vtracer handles gradients well by creating blended regions)
-    # Auto-snapping was distorting gradient shapes (ribbon, shadows)
+    # Strategy: auto-detect if image has gradients, choose approach:
+    # - FLAT image (logo, icon): snap to detected colors → clean flat SVG
+    # - GRADIENT image (ribbon, photo): let vtracer handle natively → smooth blending
+    # - CUSTOM colors provided: always snap to user's colors
     with Image.open(input_path) as img:
         processed = np.array(img.convert("RGB"))
 
-    # Only snap when user explicitly chose colors in the color picker
-    snap_colors = custom_colors_hex
+    # Auto-detect gradient presence
+    has_gradients = _detect_gradients(processed)
+
+    # Decide snapping strategy
+    snap_colors = custom_colors_hex  # User explicitly set colors
+    if not snap_colors and not has_gradients:
+        # Flat image with no gradients — auto-detect and snap for clean output
+        analyzed = analyze_colors(input_path, max_colors=15)
+        snap_colors = [c["hex"] for c in analyzed if c["percentage"] > 0.8]
+        snap_colors = snap_colors[:12]
+
     if snap_colors and len(snap_colors) >= 2:
         centers = np.array([
             [int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)]
