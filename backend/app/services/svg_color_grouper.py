@@ -135,22 +135,7 @@ def group_svg_colors(
             "original_colors": len(members),
         })
 
-    # Step A: Find and whiten the full-canvas background path
-    # In stacked mode, the FIRST few paths are full-canvas backgrounds.
-    # Any path starting at M0 0 that covers the entire canvas is background.
-    svg_width = root.get("width", "0")
-    svg_height = root.get("height", "0")
-    all_paths = list(root.iter())
-    for elem in all_paths:
-        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-        if tag == "path":
-            d = elem.get("d", "")
-            fill = (elem.get("fill") or "").upper()
-            # If path starts at origin AND contains the full width/height → background
-            if d.startswith("M0 0") and svg_width in d and svg_height in d:
-                elem.set("fill", "#FFFFFF")
-
-    # Step B: Snap near-white and near-black to pure values
+    # Snap near-white and near-black to pure values
     for elem in root.iter():
         tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
         if tag == "path":

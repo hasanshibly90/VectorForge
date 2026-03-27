@@ -598,55 +598,25 @@ async def _convert_with_vtracer_full(
     d = settings.detail_level
     s = settings.smoothing
 
-    # Step 1: MAXIMUM QUALITY preprocessing
-    # Background removal + Auto-crop + Upscale 4x + Gaussian + Bilateral
-    import cv2
-    from app.services.preprocessing import auto_crop_content, remove_background
-    with Image.open(input_path) as img:
-        rgb = img.convert("RGB")
-        img_array = np.array(rgb)
-
-        # Remove background: detect from corners, replace with pure white
-        # This eliminates ALL warm/colored JPEG artifacts in the background
-        img_array = remove_background(img_array, threshold=40)
-
-        # Auto-crop to content bounds
-        img_array = auto_crop_content(img_array, padding_pct=0.01)
-
-        orig_h, orig_w = img_array.shape[:2]
-
-        # Upscale 4x for maximum curve resolution
-        target = max(orig_w, orig_h) * 4
-        target = min(target, 8000)
-        scale = target / max(orig_w, orig_h)
-        if scale > 1.0:
-            pil_img = Image.fromarray(img_array)
-            pil_img = pil_img.resize((int(orig_w * scale), int(orig_h * scale)), Image.LANCZOS)
-            img_array = np.array(pil_img)
-
-        bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-
-        # Gaussian blur — smooths pixel staircase
-        bgr = cv2.GaussianBlur(bgr, (0, 0), 2.0)
-
-        # Bilateral filter — preserves edges
-        bgr = cv2.bilateralFilter(bgr, 9, 50, 50)
-
-        rgb_out = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        png_path = output_dir / "input_quality.png"
-        Image.fromarray(rgb_out).save(str(png_path), "PNG")
+    # Step 1: Simple PNG conversion — NO preprocessing
+    # Raw vtracer at native resolution produced the best output (2.7s, all colors)
+    # Every preprocessing attempt (upscale, blur, bilateral) made things worse
+    if input_path.suffix.lower() not in (".png", ".bmp"):
+        png_path = output_dir / "input.png"
+        with Image.open(input_path) as img:
+            img.save(png_path, "PNG")
         input_path = png_path
 
-    # Step 2: Trace with MAXIMUM vtracer quality settings
-    filter_speckle = 1                              # Keep ALL detail
-    color_precision = 8                             # Maximum color accuracy
-    layer_difference = max(4, 16 - d * 1)           # Tight color layers
-    corner_threshold = max(120, 80 + s * 15)        # Ultra smooth corners
-    length_threshold = max(6.0, 4.0 + s * 1.5)     # Very long smooth segments
-    splice_threshold = max(80, 40 + s * 12)         # Ultra smooth splices
-    path_precision = 8                              # Maximum decimal precision
-    max_iterations = 15                             # Full convergence
-    hierarchical = "stacked"                        # Fill all gaps
+    # Step 2: vtracer with good defaults
+    filter_speckle = max(2, 6 - d // 2)
+    color_precision = min(8, max(6, d))
+    layer_difference = max(6, 24 - d * 2)
+    corner_threshold = max(60, 40 + s * 8)
+    length_threshold = max(3.0, 2.0 + s * 0.6)
+    splice_threshold = max(40, 20 + s * 6)
+    path_precision = 8
+    max_iterations = 10
+    hierarchical = "stacked"
 
     combined_svg = output_dir / f"{stem}_combined.svg"
 
