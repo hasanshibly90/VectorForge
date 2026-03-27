@@ -544,18 +544,18 @@ async def _convert_with_vtracer_full(
             img.save(png_path, "PNG")
         input_path = png_path
 
-    # Step 2: Trace RAW image with vtracer — no preprocessing, no snapping
-    # ALWAYS use stacked mode — it fills the entire canvas with no gaps.
-    # Cutout mode leaves empty space between colors (shows as transparent).
-    filter_speckle = max(1, 6 - d // 2)
-    color_precision = min(8, max(5, d))
-    layer_difference = max(4, 20 - d * 2)       # Lower = fewer gaps between colors
-    corner_threshold = max(30, 20 + s * 7)
-    length_threshold = max(1.5, 1.0 + s * 0.4)
-    splice_threshold = max(20, 10 + s * 5)
+    # Step 2: Trace RAW image with vtracer
+    # ALWAYS use stacked mode — fills entire canvas with no gaps.
+    # Params tuned for SMOOTH curves suitable for CNC cutting.
+    filter_speckle = max(2, 8 - d)               # Higher = removes more tiny specks
+    color_precision = min(8, max(5, d))           # Color accuracy
+    layer_difference = max(4, 20 - d * 2)         # Lower = fewer gaps
+    corner_threshold = max(60, 40 + s * 10)       # HIGHER = smoother corners (was 20+s*7)
+    length_threshold = max(3.0, 2.0 + s * 0.8)   # LONGER segments = smoother (was 1.0+s*0.4)
+    splice_threshold = max(40, 20 + s * 8)        # HIGHER = smoother splices (was 10+s*5)
     path_precision = min(8, max(3, d))
     max_iterations = min(15, max(8, d + 3))
-    hierarchical = "stacked"  # Always stacked — fills gaps with adjacent colors
+    hierarchical = "stacked"
 
     combined_svg = output_dir / f"{stem}_combined.svg"
 
