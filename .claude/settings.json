@@ -108,7 +108,14 @@
       "Bash(\"/c/Program Files/Tailscale/tailscale.exe\" status)",
       "Bash(ssh -o:*)",
       "Bash(python -c \"from app.main import app; print\\(''OK''\\)\")",
-      "WebFetch(domain:vectormagic.com)"
+      "WebFetch(domain:vectormagic.com)",
+      "Bash(ls -la \"/c/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/frontend/src\")",
+      "Bash(wc -l \"/c/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/backend/app/services/vectorize_cnc.py\")",
+      "Bash(head -50 \"/c/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/backend/app/main.py\")",
+      "Bash(ls -la \"/c/Users/HP/My Drive \\(supportibe@gmail.com\\)/Raster-to-vector/backend/app/services/\")",
+      "Bash(pip list:*)",
+      "Bash(python -m pip install opencv-python-headless)",
+      "Bash(python -c \"from app.main import app; print\\(''Backend OK''\\)\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\HP\\.claude\\projects\\c--Users-HP-My-Drive--supportibe-gmail-com--Raster-to-vector",

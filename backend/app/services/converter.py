@@ -362,12 +362,25 @@ async def _convert_with_vtracer_full(
 
     result = ConversionResult()
 
-    # Ensure PNG input (vtracer works best with PNG)
-    if input_path.suffix.lower() not in (".png", ".bmp"):
-        png_path = output_dir / "input.png"
-        with Image.open(input_path) as img:
-            img.save(png_path, "PNG")
-        input_path = png_path
+    # Determine image type preset from settings
+    d = settings.detail_level
+    if d >= 7:
+        preset = "logo"
+    elif d >= 5:
+        preset = "artwork"
+    else:
+        preset = "photo"
+
+    # Preprocess image: denoise, contrast, sharpen, upscale
+    from app.services.preprocessing import preprocess_for_vectorization
+    with Image.open(input_path) as img:
+        img_array = np.array(img.convert("RGB"))
+    processed = preprocess_for_vectorization(img_array, preset=preset)
+
+    # Save preprocessed image as PNG for vtracer
+    preprocessed_path = output_dir / "preprocessed.png"
+    Image.fromarray(processed).save(str(preprocessed_path), "PNG")
+    input_path = preprocessed_path
 
     # Quality-optimized vtracer parameters
     # Key insight: lower filter_speckle + higher color_precision = better quality
