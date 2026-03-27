@@ -135,21 +135,10 @@ def group_svg_colors(
             "original_colors": len(members),
         })
 
-    # Apply color remap to all paths
-    remapped = 0
-    for elem in root.iter():
-        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-        if tag == "path":
-            fill = (elem.get("fill") or "").strip().upper()
-            if fill in color_remap:
-                elem.set("fill", color_remap[fill])
-                remapped += 1
+    # DO NOT recolor SVG paths — vtracer's stacked output relies on
+    # overlapping slightly-different colors to fill gaps. Recoloring
+    # makes same-colored paths merge visually, revealing gaps underneath.
+    # Only report the layer info for the UI.
 
-    # Sort layers by area (largest first)
     layer_info.sort(key=lambda x: x["area_pct"], reverse=True)
-
-    # Write output
-    ET.register_namespace("", "http://www.w3.org/2000/svg")
-    tree.write(str(output_path), xml_declaration=True, encoding="UTF-8")
-
     return output_path, layer_info
