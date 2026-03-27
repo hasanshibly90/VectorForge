@@ -598,33 +598,12 @@ async def _convert_with_vtracer_full(
     d = settings.detail_level
     s = settings.smoothing
 
-    # Step 1: Premium preprocessing for smooth curves
-    # 1. Upscale 4x to 6400px — maximum resolution for curve tracing
-    # 2. Gaussian blur — smooths pixel staircase edges
-    # 3. Bilateral filter — preserves sharp edges while smoothing regions
-    import cv2
-    upscale_target = 6400
-    with Image.open(input_path) as img:
-        rgb = img.convert("RGB")
-        orig_w, orig_h = rgb.size
-        scale = upscale_target / max(orig_w, orig_h)
-        if scale > 1.0:
-            new_w, new_h = int(orig_w * scale), int(orig_h * scale)
-            rgb = rgb.resize((new_w, new_h), Image.LANCZOS)
-
-        img_array = np.array(rgb)
-        bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-
-        # Gaussian blur to aggressively smooth pixel staircase edges
-        # At 6400px, sigma=2.5 smooths pixel boundaries without losing detail
-        blurred = cv2.GaussianBlur(bgr, (0, 0), 2.5)
-
-        # Bilateral filter to re-sharpen edges while keeping smooth regions
-        smoothed = cv2.bilateralFilter(blurred, 9, 60, 60)
-
-        rgb_smoothed = cv2.cvtColor(smoothed, cv2.COLOR_BGR2RGB)
-        png_path = output_dir / "input_upscaled.png"
-        Image.fromarray(rgb_smoothed).save(str(png_path), "PNG")
+    # Step 1: Convert to PNG — NO heavy preprocessing for vtracer
+    # vtracer handles native resolution well. Heavy upscale + blur was 216s.
+    if input_path.suffix.lower() not in (".png", ".bmp"):
+        png_path = output_dir / "input.png"
+        with Image.open(input_path) as img:
+            img.save(png_path, "PNG")
         input_path = png_path
 
     # Step 2: Trace with vtracer — PREMIUM smoothing settings
