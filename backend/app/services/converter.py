@@ -599,14 +599,18 @@ async def _convert_with_vtracer_full(
     s = settings.smoothing
 
     # Step 1: MAXIMUM QUALITY preprocessing
-    # Auto-crop + Upscale 4x + Gaussian + Bilateral
+    # Background removal + Auto-crop + Upscale 4x + Gaussian + Bilateral
     import cv2
-    from app.services.preprocessing import auto_crop_content
+    from app.services.preprocessing import auto_crop_content, remove_background
     with Image.open(input_path) as img:
         rgb = img.convert("RGB")
         img_array = np.array(rgb)
 
-        # Auto-crop: removes background artifacts outside the design
+        # Remove background: detect from corners, replace with pure white
+        # This eliminates ALL warm/colored JPEG artifacts in the background
+        img_array = remove_background(img_array, threshold=40)
+
+        # Auto-crop to content bounds
         img_array = auto_crop_content(img_array, padding_pct=0.01)
 
         orig_h, orig_w = img_array.shape[:2]
