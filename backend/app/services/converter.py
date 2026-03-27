@@ -554,11 +554,12 @@ async def _convert_with_vtracer_full(
         img_array = np.array(rgb)
         bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
-        # Light Gaussian blur to smooth pixel staircase (sigma=1.0)
-        blurred = cv2.GaussianBlur(bgr, (0, 0), 1.0)
+        # Gaussian blur to aggressively smooth pixel staircase edges
+        # At 6400px, sigma=2.5 smooths pixel boundaries without losing detail
+        blurred = cv2.GaussianBlur(bgr, (0, 0), 2.5)
 
-        # Bilateral filter to sharpen edges back while keeping smooth regions
-        smoothed = cv2.bilateralFilter(blurred, 7, 50, 50)
+        # Bilateral filter to re-sharpen edges while keeping smooth regions
+        smoothed = cv2.bilateralFilter(blurred, 9, 60, 60)
 
         rgb_smoothed = cv2.cvtColor(smoothed, cv2.COLOR_BGR2RGB)
         png_path = output_dir / "input_upscaled.png"
@@ -602,9 +603,20 @@ async def _convert_with_vtracer_full(
     except Exception:
         layer_info = []
 
-    # Path smoothing disabled — was destroying SVG paths.
-    # The RDP+Bezier refit approach needs more R&D before production use.
-    # vtracer's native spline output is acceptable for now.
+    # Step 3b: Smooth kinked paths using svgpathtools
+    try:
+        from svgpathtools import svg2paths2, wsvg, smoothed_path
+        paths, attrs, svg_attrs = svg2paths2(str(combined_svg))
+        smoothed_paths = []
+        for p in paths:
+            try:
+                sp = smoothed_path(p, tightness=0.5)
+                smoothed_paths.append(sp)
+            except Exception:
+                smoothed_paths.append(p)
+        wsvg(smoothed_paths, attributes=attrs, svg_attributes=svg_attrs, filename=str(combined_svg))
+    except Exception:
+        pass  # Smoothing is optional
 
     result.combined_svg_path = combined_svg
 
