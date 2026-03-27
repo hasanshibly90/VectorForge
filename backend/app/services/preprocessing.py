@@ -21,40 +21,36 @@ from typing import Literal
 PRESETS = {
     "photo": {
         "denoise": True,
-        "denoise_strength": 7,
-        "contrast": "clahe",
-        "clahe_clip": 2.0,
-        "clahe_grid": 8,
+        "denoise_strength": 10,
+        "contrast": None,           # NO contrast boost — photos already have good range
         "sharpen": False,
         "upscale_target": 2048,
-        "bilateral": False,
-    },
-    "artwork": {
-        "denoise": True,
-        "denoise_strength": 5,
-        "contrast": "clahe",
-        "clahe_clip": 1.5,
-        "clahe_grid": 8,
-        "sharpen": True,
-        "sharpen_amount": 0.5,
-        "upscale_target": 3072,
         "bilateral": True,
         "bilateral_d": 9,
         "bilateral_sigma_color": 75,
         "bilateral_sigma_space": 75,
     },
+    "artwork": {
+        "denoise": True,
+        "denoise_strength": 7,
+        "contrast": None,           # NO CLAHE — amplifies JPEG noise
+        "sharpen": False,           # NO sharpening — creates artifacts
+        "upscale_target": 3072,
+        "bilateral": True,          # Bilateral is the KEY — smooths noise, keeps edges
+        "bilateral_d": 9,
+        "bilateral_sigma_color": 75,
+        "bilateral_sigma_space": 75,
+    },
     "logo": {
-        "denoise": False,
-        "contrast": "clahe",
-        "clahe_clip": 1.0,
-        "clahe_grid": 4,
-        "sharpen": True,
-        "sharpen_amount": 0.8,
+        "denoise": True,
+        "denoise_strength": 5,      # Light denoise to remove JPEG artifacts
+        "contrast": None,           # NO CLAHE — logos have strong contrast already
+        "sharpen": False,           # NO sharpening — amplifies compression noise
         "upscale_target": 4096,
-        "bilateral": True,
-        "bilateral_d": 5,
-        "bilateral_sigma_color": 50,
-        "bilateral_sigma_space": 50,
+        "bilateral": True,          # Bilateral smooths gradient noise + keeps text edges
+        "bilateral_d": 7,
+        "bilateral_sigma_color": 60,
+        "bilateral_sigma_space": 60,
     },
 }
 
