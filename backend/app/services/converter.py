@@ -76,16 +76,20 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
     img = Image.open(input_path).convert("RGB")
     pixels = np.array(img).reshape(-1, 3)
 
-    # Use FEWER clusters — most images have 2-4 real colors
-    # Anti-alias edges should NOT become separate clusters
-    kmeans = KMeans(n_clusters=min(4, max(2, len(set(map(tuple, (pixels[::50] // 64) * 64))))), n_init=10, random_state=42)
+    # Detect color variety to decide cluster count
+    # Quantize to 64-level buckets and count unique colors
+    quantized_unique = len(set(map(tuple, (pixels[::50] // 64) * 64)))
+    # Simple images (2-3 unique quantized) -> 3 clusters
+    # Complex images (10+ unique quantized) -> up to 8 clusters
+    n_clusters = min(8, max(3, quantized_unique // 2))
+    kmeans = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
     kmeans.fit(pixels[::10])
     centers = kmeans.cluster_centers_.astype(int)
     labels_sub = kmeans.predict(pixels[::10])
     counts = np.bincount(labels_sub, minlength=len(centers))
 
-    # Merge similar clusters (RGB distance < 120)
-    # Aggressive merge kills anti-alias intermediate colors
+    # Merge similar clusters (RGB distance < 80)
+    # Less aggressive than before — preserves distinct colors in complex logos
     merged = []
     used = set()
     for i in range(len(centers)):
@@ -96,7 +100,7 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
             if j in used:
                 continue
             dist = np.sqrt(np.sum((centers[i].astype(float) - centers[j].astype(float)) ** 2))
-            if dist < 120:
+            if dist < 80:
                 group.append(j)
                 used.add(j)
         used.add(i)
@@ -138,7 +142,7 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
     # Drop tiny clusters (< 5% of image) — these are always anti-alias edge artifacts
     design_colors = [
         m for m in merged[1:]
-        if m["count"] / total_pixels > 0.05
+        if m["count"] / total_pixels > 0.02
     ]
     dropped = len(merged) - 1 - len(design_colors)
     if dropped > 0:
