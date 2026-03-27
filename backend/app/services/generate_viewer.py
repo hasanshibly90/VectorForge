@@ -23,8 +23,8 @@ def generate_viewer(output_dir: str, max_preview_px: int = 400) -> Path:
 
     json_files = list(output_dir.glob("*_layers.json"))
     if not json_files:
-        print(f"ERROR: No *_layers.json in {output_dir}", file=sys.stderr)
-        sys.exit(1)
+        print(f"WARNING: No *_layers.json in {output_dir}", file=sys.stderr)
+        return output_dir / "layer_viewer.html"  # return path even if not created
 
     meta = json.loads(json_files[0].read_text())
     dims = meta.get("dimensions", {})

@@ -445,16 +445,7 @@ async def _convert_with_vtracer_full(
         rgba.save(str(png_path), dpi=(300, 300))
         result.png_path = png_path
 
-    # Generate HTML layer viewer
-    try:
-        from app.services.generate_viewer import generate_viewer
-        viewer_path = generate_viewer(str(output_dir))
-        if viewer_path.exists():
-            result.viewer_html_path = viewer_path
-    except Exception:
-        pass
-
-    # Write metadata JSON
+    # Write metadata JSON FIRST (viewer needs it)
     meta = {
         "source": stem,
         "engine": "vtracer",
@@ -468,6 +459,15 @@ async def _convert_with_vtracer_full(
     layers_json = output_dir / f"{stem}_layers.json"
     layers_json.write_text(json.dumps(meta, indent=2))
     result.layers_json_path = layers_json
+
+    # Generate HTML layer viewer (after JSON is written)
+    try:
+        from app.services.generate_viewer import generate_viewer
+        viewer_path = generate_viewer(str(output_dir))
+        if viewer_path.exists():
+            result.viewer_html_path = viewer_path
+    except Exception:
+        pass
 
     return result
 
