@@ -375,24 +375,32 @@ async def _convert_with_vtracer_full(
     else:
         preset = "photo"
 
-    # Preprocessing strategy:
-    # - vtracer handles multi-color images well natively
-    # - Heavy preprocessing (bilateral, quantization) HURTS quality:
-    #   destroys text, creates color banding, loses fine details
-    # - Only do: format conversion + optional custom color snapping
+    # Strategy: snap all pixels to detected/custom colors BEFORE vtracer.
+    # This eliminates gradients, anti-alias noise, and ensures each color
+    # region is clean and flat — which vtracer traces perfectly.
     with Image.open(input_path) as img:
         processed = np.array(img.convert("RGB"))
 
-    # If custom colors provided, snap pixels to nearest custom color
-    if custom_colors_hex and len(custom_colors_hex) > 0:
+    # Determine color palette for snapping
+    snap_colors = custom_colors_hex
+    if not snap_colors or len(snap_colors) == 0:
+        # Auto-detect dominant colors if user didn't provide any
+        analyzed = analyze_colors(input_path, max_colors=15)
+        snap_colors = [c["hex"] for c in analyzed if c["percentage"] > 1.0]
+        # Keep max 12 colors
+        snap_colors = snap_colors[:12]
+
+    # Snap every pixel to the nearest palette color
+    if snap_colors and len(snap_colors) >= 2:
         centers = np.array([
             [int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)]
-            for h in custom_colors_hex if len(h) >= 7
+            for h in snap_colors if len(h) >= 7
         ], dtype=np.float32)
-        if len(centers) > 0:
+        if len(centers) >= 2:
             h_img, w_img = processed.shape[:2]
             flat = processed.reshape(-1, 3).astype(np.float32)
-            dists = np.sqrt(((flat[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2))
+            # Use squared distance (faster, same result for argmin)
+            dists = ((flat[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
             nearest = dists.argmin(axis=1)
             snapped = centers[nearest].astype(np.uint8)
             processed = snapped.reshape(h_img, w_img, 3)
