@@ -135,10 +135,27 @@ def group_svg_colors(
             "original_colors": len(members),
         })
 
-    # DO NOT recolor SVG paths — vtracer's stacked output relies on
-    # overlapping slightly-different colors to fill gaps. Recoloring
-    # makes same-colored paths merge visually, revealing gaps underneath.
-    # Only report the layer info for the UI.
+    # ONLY snap near-white and near-black to pure values.
+    # Do NOT recolor other colors (that breaks stacked gap-filling).
+    # This fixes off-white (#F0EFEF) looking transparent on checkerboard.
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if tag == "path":
+            fill = (elem.get("fill") or "").strip().upper()
+            if len(fill) == 7 and fill.startswith("#"):
+                r = int(fill[1:3], 16)
+                g = int(fill[3:5], 16)
+                b = int(fill[5:7], 16)
+                # Near-white → pure white
+                if r > 210 and g > 210 and b > 210:
+                    elem.set("fill", "#FFFFFF")
+                # Near-black → pure black
+                elif r < 45 and g < 45 and b < 45:
+                    elem.set("fill", "#000000")
+
+    # Write modified SVG
+    ET.register_namespace("", "http://www.w3.org/2000/svg")
+    tree.write(str(output_path), xml_declaration=True, encoding="UTF-8")
 
     layer_info.sort(key=lambda x: x["area_pct"], reverse=True)
     return output_path, layer_info
