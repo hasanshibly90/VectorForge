@@ -537,11 +537,19 @@ async def _convert_with_vtracer_full(
     d = settings.detail_level
     s = settings.smoothing
 
-    # Step 1: Ensure PNG input (vtracer works best with PNG)
-    if input_path.suffix.lower() not in (".png", ".bmp"):
-        png_path = output_dir / "input.png"
-        with Image.open(input_path) as img:
-            img.save(png_path, "PNG")
+    # Step 1: Convert to PNG + upscale for smoother curves
+    # More pixels = smoother boundaries for vtracer to trace.
+    # This is the ONLY preprocessing that doesn't damage quality.
+    upscale_target = 3200  # ~3200px max dimension
+    with Image.open(input_path) as img:
+        rgb = img.convert("RGB")
+        w, h = rgb.size
+        scale = upscale_target / max(w, h)
+        if scale > 1.0:
+            new_w, new_h = int(w * scale), int(h * scale)
+            rgb = rgb.resize((new_w, new_h), Image.LANCZOS)
+        png_path = output_dir / "input_upscaled.png"
+        rgb.save(str(png_path), "PNG")
         input_path = png_path
 
     # Step 2: Trace RAW image with vtracer
