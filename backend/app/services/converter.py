@@ -430,22 +430,16 @@ async def _convert_with_vtracer_full(
     else:
         preset = "photo"
 
-    # Strategy: snap all pixels to detected/custom colors BEFORE vtracer.
-    # This eliminates gradients, anti-alias noise, and ensures each color
-    # region is clean and flat — which vtracer traces perfectly.
+    # Strategy:
+    # - If user provided custom colors: snap pixels to those colors (flat output)
+    # - If no custom colors: let vtracer handle the image natively
+    #   (vtracer handles gradients well by creating blended regions)
+    # Auto-snapping was distorting gradient shapes (ribbon, shadows)
     with Image.open(input_path) as img:
         processed = np.array(img.convert("RGB"))
 
-    # Determine color palette for snapping
+    # Only snap when user explicitly chose colors in the color picker
     snap_colors = custom_colors_hex
-    if not snap_colors or len(snap_colors) == 0:
-        # Auto-detect dominant colors if user didn't provide any
-        analyzed = analyze_colors(input_path, max_colors=15)
-        snap_colors = [c["hex"] for c in analyzed if c["percentage"] > 1.0]
-        # Keep max 12 colors
-        snap_colors = snap_colors[:12]
-
-    # Snap every pixel to the nearest palette color
     if snap_colors and len(snap_colors) >= 2:
         centers = np.array([
             [int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)]
