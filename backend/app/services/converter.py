@@ -369,16 +369,23 @@ async def _convert_with_vtracer_full(
             img.save(png_path, "PNG")
         input_path = png_path
 
-    # Map user settings to vtracer parameters
-    # Detail: higher = more detail (lower speckle filter, higher precision)
-    filter_speckle = max(2, 12 - settings.detail_level)  # 10->2, 1->11
-    color_precision = max(3, min(8, settings.detail_level))  # 3->8
-    layer_difference = max(10, 40 - settings.detail_level * 3)  # 37->10
+    # Quality-optimized vtracer parameters
+    # Key insight: lower filter_speckle + higher color_precision = better quality
+    # cutout mode = cleaner edges for logos/icons
+    d = settings.detail_level  # 1-10
+    s = settings.smoothing     # 1-10
 
-    # Smoothing: higher = smoother curves
-    corner_threshold = max(20, 30 + settings.smoothing * 8)  # 38->110
-    length_threshold = max(2.0, settings.smoothing * 1.2)  # 1.2->12
-    splice_threshold = max(20, settings.smoothing * 6)  # 6->60
+    filter_speckle = max(1, 6 - d // 2)        # detail 1->5, 10->1
+    color_precision = min(8, max(5, d))         # 5->8
+    layer_difference = max(8, 30 - d * 2)       # 28->10
+    corner_threshold = max(30, 20 + s * 7)      # 27->90
+    length_threshold = max(1.5, 1.0 + s * 0.4)  # 1.4->5.0
+    splice_threshold = max(20, 10 + s * 5)      # 15->60
+    path_precision = min(8, max(3, d))           # 3->8
+    max_iterations = min(15, max(8, d + 3))      # 4->13
+
+    # cutout mode for logos (clean edges), stacked for photos (compact)
+    hierarchical = "cutout" if d >= 6 else "stacked"
 
     combined_svg = output_dir / f"{stem}_combined.svg"
 
@@ -386,7 +393,7 @@ async def _convert_with_vtracer_full(
         image_path=str(input_path),
         out_path=str(combined_svg),
         colormode="color",
-        hierarchical="stacked",
+        hierarchical=hierarchical,
         mode="spline",
         filter_speckle=filter_speckle,
         color_precision=color_precision,
@@ -394,8 +401,8 @@ async def _convert_with_vtracer_full(
         corner_threshold=corner_threshold,
         length_threshold=length_threshold,
         splice_threshold=splice_threshold,
-        max_iterations=10,
-        path_precision=3,
+        max_iterations=max_iterations,
+        path_precision=path_precision,
     )
     result.combined_svg_path = combined_svg
 
