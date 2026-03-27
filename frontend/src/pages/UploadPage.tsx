@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Archive, ChevronDown, Download, Eye, FileCode, Layers, Palette, Play, Printer, RotateCcw, Share2, Sparkles, Upload, X } from "lucide-react";
+import { Archive, ChevronDown, Download, Eye, FileCode, Layers, Palette, Pipette, Play, Printer, RotateCcw, Share2, Sparkles, Upload, X } from "lucide-react";
 import { useDropzone } from "react-dropzone";
 import { useSearchParams } from "react-router-dom";
 import { getConversion, uploadFile, downloadConversion, shareConversion } from "../api/client";
@@ -40,9 +40,48 @@ export default function UploadPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [shareUrl, setShareUrl] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [imageType, setImageType] = useState<"photo" | "artwork" | "logo">("artwork");
   const [detectedColors, setDetectedColors] = useState<ColorEntry[]>([]);
   const [showSegmented, setShowSegmented] = useState(false);
   const [segmentedUrl, setSegmentedUrl] = useState("");
+  const [cropEnabled, setCropEnabled] = useState(false);
+  const [eyedropperActive, setEyedropperActive] = useState(false);
+  const [pickedColor, setPickedColor] = useState("");
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!eyedropperActive || !imgRef.current) return;
+    const img = imgRef.current;
+    const rect = img.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    // Draw to canvas to read pixel
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(img, 0, 0);
+    const scaleX = img.naturalWidth / rect.width;
+    const scaleY = img.naturalHeight / rect.height;
+    const pixel = ctx.getImageData(Math.floor(x * scaleX), Math.floor(y * scaleY), 1, 1).data;
+    const hex = `#${pixel[0].toString(16).padStart(2, "0")}${pixel[1].toString(16).padStart(2, "0")}${pixel[2].toString(16).padStart(2, "0")}`;
+    setPickedColor(hex);
+    // Add to colors if not already there
+    const exists = detectedColors.some(c => {
+      const dr = parseInt(c.hex.slice(1, 3), 16) - pixel[0];
+      const dg = parseInt(c.hex.slice(3, 5), 16) - pixel[1];
+      const db = parseInt(c.hex.slice(5, 7), 16) - pixel[2];
+      return Math.sqrt(dr * dr + dg * dg + db * db) < 40;
+    });
+    if (!exists) {
+      setDetectedColors(prev => [...prev, {
+        hex, name: _nameColor([pixel[0], pixel[1], pixel[2]]),
+        percentage: 0, isTransparent: false, enabled: true,
+      }]);
+    }
+    setEyedropperActive(false);
+  };
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Settings (can be pre-filled from URL params via /prompts "Try This" button)
@@ -52,6 +91,21 @@ export default function UploadPage() {
   );
   const [detail, setDetail] = useState(Number(searchParams.get("detail")) || 5);
   const [smoothing, setSmoothing] = useState(Number(searchParams.get("smoothing")) || 5);
+
+  const applyImageType = (type: "photo" | "artwork" | "logo") => {
+    setImageType(type);
+    switch (type) {
+      case "photo":
+        setColormode("color"); setDetail(4); setSmoothing(7);
+        break;
+      case "artwork":
+        setColormode("color"); setDetail(6); setSmoothing(5);
+        break;
+      case "logo":
+        setColormode("color"); setDetail(8); setSmoothing(3);
+        break;
+    }
+  };
 
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length === 0) return;
@@ -245,7 +299,27 @@ export default function UploadPage() {
       {/* ── STAGE: editing (color picker + settings + convert) ── */}
       {stage === "editing" && file && (
         <div className="space-y-4">
-          {/* Image preview with segmentation toggle */}
+          {/* Image Type Selector */}
+          <div className="card">
+            <p className="text-xs font-medium text-dark-300 uppercase tracking-wider mb-3">Image Type</p>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { type: "photo" as const, icon: "camera", label: "Photo", desc: "Camera shot, many colors" },
+                { type: "artwork" as const, icon: "brush", label: "Artwork", desc: "Illustration, blended edges" },
+                { type: "logo" as const, icon: "shapes", label: "Logo / Icon", desc: "Flat colors, sharp edges" },
+              ]).map((t) => (
+                <button key={t.type} onClick={() => applyImageType(t.type)}
+                  className={`py-3 px-2 rounded-xl text-center transition-all ${
+                    imageType === t.type ? "bg-accent-500 text-white shadow-glow" : "bg-dark-700 text-dark-300 border border-dark-600 hover:border-accent-500/30"
+                  }`}>
+                  <span className="text-sm font-semibold block">{t.label}</span>
+                  <span className={`text-[9px] block mt-0.5 ${imageType === t.type ? "text-white/70" : "text-dark-500"}`}>{t.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Image preview with segmentation toggle + eyedropper */}
           <div className="card !p-3">
             <div className="flex items-center justify-between mb-3 px-2">
               <div className="flex items-center gap-2">
@@ -271,16 +345,34 @@ export default function UploadPage() {
                 >
                   Segmented
                 </button>
+                <div className="w-px h-4 bg-dark-700 mx-1" />
+                <button
+                  onClick={() => setEyedropperActive(!eyedropperActive)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all flex items-center gap-1 ${
+                    eyedropperActive ? "bg-emerald-500/20 text-emerald-400" : "text-dark-500 hover:text-dark-300"
+                  }`}
+                >
+                  <Pipette className="w-3 h-3" />
+                  Pick
+                </button>
               </div>
             </div>
+            {eyedropperActive && (
+              <div className="px-2 py-1.5 bg-emerald-500/10 rounded-lg text-[10px] text-emerald-400 text-center font-medium">
+                Click on the image to pick a color
+              </div>
+            )}
             <div
-              className="rounded-xl overflow-hidden max-h-[50vh]"
+              className={`rounded-xl overflow-hidden max-h-[50vh] ${eyedropperActive ? "cursor-crosshair" : ""}`}
               style={{ backgroundImage: "repeating-conic-gradient(#151520 0% 25%, #1a1a28 0% 50%)", backgroundSize: "16px 16px" }}
             >
               <img
+                ref={imgRef}
                 src={showSegmented && segmentedUrl ? segmentedUrl : preview}
                 alt={showSegmented ? "Segmented" : "Original"}
                 className="w-full object-contain max-h-[50vh]"
+                crossOrigin="anonymous"
+                onClick={handleImageClick}
               />
             </div>
             {/* File info bar */}

@@ -107,7 +107,8 @@
       "Bash(start \"\" \"C:\\\\Program Files\\\\Tailscale\\\\tailscale-ipn.exe\")",
       "Bash(\"/c/Program Files/Tailscale/tailscale.exe\" status)",
       "Bash(ssh -o:*)",
-      "Bash(python -c \"from app.main import app; print\\(''OK''\\)\")"
+      "Bash(python -c \"from app.main import app; print\\(''OK''\\)\")",
+      "WebFetch(domain:vectormagic.com)"
     ],
     "additionalDirectories": [
       "C:\\Users\\HP\\.claude\\projects\\c--Users-HP-My-Drive--supportibe-gmail-com--Raster-to-vector",

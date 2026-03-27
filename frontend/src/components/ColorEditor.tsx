@@ -64,14 +64,20 @@ export default function ColorEditor({ colors, onChange, previewUrl }: ColorEdito
         </button>
       </div>
 
-      {/* Transparent indicator */}
-      {transparentColor && (
+      {/* Background indicator / toggle */}
+      {transparentColor ? (
         <div className="mb-3 px-3 py-2 rounded-xl bg-dark-900/60 text-xs text-dark-400 flex items-center gap-2">
           <div className="w-4 h-4 rounded border border-dark-600" style={{
             backgroundImage: "repeating-conic-gradient(#333 0% 25%, #555 0% 50%)",
             backgroundSize: "6px 6px"
           }} />
-          Background: <span className="text-dark-300 font-medium">{transparentColor.name}</span> ({transparentColor.hex})
+          Background: <span className="text-dark-300 font-medium">{transparentColor.name}</span>
+          <button onClick={() => updateColor(colors.indexOf(transparentColor), { isTransparent: false })}
+            className="ml-auto text-[10px] text-dark-500 hover:text-accent-400">Keep background</button>
+        </div>
+      ) : (
+        <div className="mb-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 flex items-center justify-between">
+          <span>No background set. Click the eye icon on a color to mark it as background.</span>
         </div>
       )}
 
