@@ -598,25 +598,45 @@ async def _convert_with_vtracer_full(
     d = settings.detail_level
     s = settings.smoothing
 
-    # Step 1: Convert to PNG — NO heavy preprocessing for vtracer
-    # vtracer handles native resolution well. Heavy upscale + blur was 216s.
-    if input_path.suffix.lower() not in (".png", ".bmp"):
-        png_path = output_dir / "input.png"
-        with Image.open(input_path) as img:
-            img.save(png_path, "PNG")
+    # Step 1: MAXIMUM QUALITY preprocessing
+    # Upscale 4x + Gaussian blur + bilateral filter
+    # Speed doesn't matter — quality is everything
+    import cv2
+    with Image.open(input_path) as img:
+        rgb = img.convert("RGB")
+        orig_w, orig_h = rgb.size
+
+        # Upscale 4x for maximum curve resolution
+        target = max(orig_w, orig_h) * 4
+        target = min(target, 8000)  # Cap at 8000px to prevent memory issues
+        scale = target / max(orig_w, orig_h)
+        if scale > 1.0:
+            rgb = rgb.resize((int(orig_w * scale), int(orig_h * scale)), Image.LANCZOS)
+
+        img_array = np.array(rgb)
+        bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+
+        # Gaussian blur — smooths pixel staircase at edges
+        bgr = cv2.GaussianBlur(bgr, (0, 0), 2.0)
+
+        # Bilateral filter — re-sharpens edges while keeping smooth regions
+        bgr = cv2.bilateralFilter(bgr, 9, 50, 50)
+
+        rgb_out = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        png_path = output_dir / "input_quality.png"
+        Image.fromarray(rgb_out).save(str(png_path), "PNG")
         input_path = png_path
 
-    # Step 2: Trace with vtracer — PREMIUM smoothing settings
-    # Stacked mode fills gaps. All params tuned for maximum curve smoothness.
-    filter_speckle = max(2, 8 - d)
-    color_precision = 8                            # Maximum color accuracy
-    layer_difference = max(4, 20 - d * 2)
-    corner_threshold = max(90, 60 + s * 12)        # Very smooth corners
-    length_threshold = max(4.0, 3.0 + s * 1.0)    # Long smooth segments
-    splice_threshold = max(60, 30 + s * 10)        # Smooth splices
-    path_precision = 8                             # Maximum path precision
-    max_iterations = 15                            # Maximum convergence
-    hierarchical = "stacked"
+    # Step 2: Trace with MAXIMUM vtracer quality settings
+    filter_speckle = 1                              # Keep ALL detail
+    color_precision = 8                             # Maximum color accuracy
+    layer_difference = max(4, 16 - d * 1)           # Tight color layers
+    corner_threshold = max(120, 80 + s * 15)        # Ultra smooth corners
+    length_threshold = max(6.0, 4.0 + s * 1.5)     # Very long smooth segments
+    splice_threshold = max(80, 40 + s * 12)         # Ultra smooth splices
+    path_precision = 8                              # Maximum decimal precision
+    max_iterations = 15                             # Full convergence
+    hierarchical = "stacked"                        # Fill all gaps
 
     combined_svg = output_dir / f"{stem}_combined.svg"
 
