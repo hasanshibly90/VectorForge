@@ -375,13 +375,15 @@ async def _convert_with_vtracer_full(
     else:
         preset = "photo"
 
-    # Preprocess image: denoise, contrast, sharpen, upscale
-    from app.services.preprocessing import preprocess_for_vectorization
+    # Preprocessing strategy:
+    # - vtracer handles multi-color images well natively
+    # - Heavy preprocessing (bilateral, quantization) HURTS quality:
+    #   destroys text, creates color banding, loses fine details
+    # - Only do: format conversion + optional custom color snapping
     with Image.open(input_path) as img:
-        img_array = np.array(img.convert("RGB"))
-    processed = preprocess_for_vectorization(img_array, preset=preset)
+        processed = np.array(img.convert("RGB"))
 
-    # If custom colors provided, snap all pixels to nearest custom color
+    # If custom colors provided, snap pixels to nearest custom color
     if custom_colors_hex and len(custom_colors_hex) > 0:
         centers = np.array([
             [int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)]
