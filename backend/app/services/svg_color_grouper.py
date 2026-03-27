@@ -135,6 +135,21 @@ def group_svg_colors(
             "original_colors": len(members),
         })
 
+    # Add white background rectangle if white family exists
+    # This ensures white areas inside the design are visible on any background
+    has_white = any(li["name"] == "white" for li in layer_info)
+    if has_white:
+        w = root.get("width", "0")
+        h = root.get("height", "0")
+        bg_rect = ET.SubElement(root, "rect" if not ns else f"{ns}rect")
+        bg_rect.set("width", str(w))
+        bg_rect.set("height", str(h))
+        bg_rect.set("fill", "#FFFFFF")
+        bg_rect.set("id", "background")
+        # Move to front (insert at beginning)
+        root.remove(bg_rect)
+        root.insert(0, bg_rect)
+
     # Apply color remap to all paths
     remapped = 0
     for elem in root.iter():
