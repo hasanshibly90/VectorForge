@@ -275,20 +275,19 @@ def _snap_to_hue_families(img: np.ndarray) -> np.ndarray:
     pixels = img.reshape(-1, 3)
     r, g, b = pixels[:, 0].astype(int), pixels[:, 1].astype(int), pixels[:, 2].astype(int)
 
-    # Define hue families with their detection criteria
+    # Define hue families — generous ranges to catch gradient variations
+    # Key: yellow/gold/orange/brown all merge into "warm" to handle ribbon gradients
     families = {
         "white":  (r > 200) & (g > 200) & (b > 200),
-        "black":  (r < 50) & (g < 50) & (b < 50),
-        "gray":   (np.abs(r - g) < 30) & (np.abs(r - b) < 30) & (r >= 50) & (r <= 200),
-        "red":    (r > 140) & (g < 100) & (b < 100),
-        "green":  (g > 100) & (r < 120) & (b < 100),
-        "blue":   (b > 140) & (r < 100) & (g < 100),
-        "yellow": (r > 140) & (g > 110) & (b < 100),
-        "orange": (r > 160) & (g > 70) & (g < 150) & (b < 80),
-        "purple": (r > 80) & (b > 80) & (g < 80),
-        "cyan":   (g > 100) & (b > 100) & (r < 80),
-        "pink":   (r > 160) & (g < 130) & (b > 80) & (b < 180),
-        "brown":  (r > 100) & (r < 180) & (g > 50) & (g < 120) & (b < 80),
+        "black":  (r < 60) & (g < 60) & (b < 60),
+        "gray":   (np.abs(r - g) < 25) & (np.abs(r - b) < 25) & (r >= 60) & (r <= 200),
+        "red":    (r > 130) & (g < 90) & (b < 90),
+        "green":  (g > 80) & (r < g) & (b < g),
+        "blue":   (b > 120) & (r < 100) & (g < 100),
+        "warm":   (r > 100) & (g > 50) & (b < 120) & (r > b) & (r > g * 0.7),  # yellow+gold+orange+brown
+        "purple": (r > 70) & (b > 70) & (g < 70),
+        "cyan":   (g > 80) & (b > 80) & (r < 80),
+        "pink":   (r > 150) & (b > 70) & (g < 120),
     }
 
     # Find the representative color (median) for each family that has enough pixels
