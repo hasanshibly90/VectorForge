@@ -411,7 +411,7 @@ async def convert_raster_to_vector(
         stem = stem[:30].rstrip("_")
 
     if settings.colormode.value == "binary":
-        # Binary mode: use potrace CNC pipeline for optimal 2-color Bezier output
+        # Binary mode: use potrace CNC pipeline for optimal 2-color Bezier
         import subprocess
         potrace_bin = "potrace"
         for candidate in ["potrace", str(Path(__file__).resolve().parent.parent.parent / "potrace.exe")]:
@@ -425,10 +425,55 @@ async def convert_raster_to_vector(
             input_path, output_dir, settings, stem, color_defs, transparent_color, potrace_bin
         )
     else:
-        # Color mode: use vtracer for native multi-color vectorization
-        result = await _convert_with_vtracer_full(
-            input_path, output_dir, settings, stem, custom_colors_hex=custom_colors_hex
-        )
+        # Color mode: try potrace hybrid (premium) first, fall back to vtracer
+        try:
+            from app.services.potrace_hybrid import potrace_hybrid_convert, _find_potrace
+            potrace_bin = _find_potrace()
+            if potrace_bin and settings.detail_level >= 5:
+                # Potrace hybrid: per-color-layer potrace for CNC-grade curves
+                pipeline_result = potrace_hybrid_convert(
+                    input_path=str(input_path),
+                    output_dir=str(output_dir),
+                    upscale_target=6400,
+                    gaussian_sigma=2.5,
+                    potrace_alphamax=1.334,
+                    potrace_turdsize=max(50, 200 - settings.detail_level * 15),
+                )
+                result = ConversionResult()
+                svg_path = Path(pipeline_result["combined_svg"])
+                if svg_path.exists():
+                    result.combined_svg_path = svg_path
+                bmp = Path(pipeline_result["bmp"])
+                if bmp.exists():
+                    result.bmp_path = bmp
+                png = Path(pipeline_result["png"])
+                if png.exists():
+                    result.png_path = png
+                meta = Path(pipeline_result["metadata"])
+                if meta.exists():
+                    result.layers_json_path = meta
+                    import json as _json
+                    meta_data = _json.loads(meta.read_text())
+                    for li in meta_data.get("layers", []):
+                        result.layers.append(LayerInfo(
+                            name=li["name"], color_hex=li["color"],
+                            area_pct=li["area_pct"], svg_file=li["svg_file"],
+                        ))
+                # Try viewer
+                try:
+                    from app.services.generate_viewer import generate_viewer
+                    vp = generate_viewer(str(output_dir))
+                    if vp.exists():
+                        result.viewer_html_path = vp
+                except Exception:
+                    pass
+            else:
+                raise RuntimeError("Potrace not available or low detail")
+        except Exception:
+            # Fall back to vtracer
+            result = await _convert_with_vtracer_full(
+                input_path, output_dir, settings, stem, custom_colors_hex=custom_colors_hex
+            )
 
     elapsed = time.perf_counter() - start
     result.processing_time_ms = int(elapsed * 1000)
