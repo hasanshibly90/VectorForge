@@ -414,18 +414,39 @@ async def _convert_with_vtracer_full(
             if fill and fill != "NONE":
                 color_counts[fill] += len(p.get("d", ""))
 
+        # Group similar colors — merge within 60 RGB distance
         total_d = sum(color_counts.values()) or 1
-        for color, d_len in color_counts.most_common():
-            r = int(color[1:3], 16) if len(color) == 7 else 0
-            g = int(color[3:5], 16) if len(color) == 7 else 0
-            b = int(color[5:7], 16) if len(color) == 7 else 0
-            name = _nameColor([r, g, b])
-            layers.append(LayerInfo(
-                name=name,
-                color_hex=color.lower(),
-                area_pct=round(d_len / total_d * 100, 1),
-                svg_file=f"{stem}_combined.svg",
-            ))
+        sorted_colors = color_counts.most_common()
+        merged_layers = []
+        used = set()
+        for color, d_len in sorted_colors:
+            if color in used:
+                continue
+            r1 = int(color[1:3], 16) if len(color) >= 7 else 0
+            g1 = int(color[3:5], 16) if len(color) >= 7 else 0
+            b1 = int(color[5:7], 16) if len(color) >= 7 else 0
+            group_d = d_len
+            used.add(color)
+            # Merge nearby colors into this group
+            for c2, d2 in sorted_colors:
+                if c2 in used or len(c2) < 7:
+                    continue
+                r2 = int(c2[1:3], 16)
+                g2 = int(c2[3:5], 16)
+                b2 = int(c2[5:7], 16)
+                dist = ((r1-r2)**2 + (g1-g2)**2 + (b1-b2)**2) ** 0.5
+                if dist < 60:
+                    group_d += d2
+                    used.add(c2)
+            pct = round(group_d / total_d * 100, 1)
+            if pct >= 0.5:  # only show colors >= 0.5%
+                merged_layers.append(LayerInfo(
+                    name=_nameColor([r1, g1, b1]),
+                    color_hex=color.lower(),
+                    area_pct=pct,
+                    svg_file=f"{stem}_combined.svg",
+                ))
+        layers = merged_layers[:20]  # max 20 layers in UI
     except Exception:
         pass
 
