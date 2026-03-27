@@ -435,9 +435,10 @@ async def convert_raster_to_vector(
                     input_path=str(input_path),
                     output_dir=str(output_dir),
                     upscale_target=6400,
-                    gaussian_sigma=2.5,
+                    gaussian_sigma=3.0,           # Higher = smoother edges
                     potrace_alphamax=1.334,
-                    potrace_turdsize=max(50, 200 - settings.detail_level * 15),
+                    potrace_turdsize=500,          # Aggressive speckle removal
+                    min_color_pct=2.0,             # Ignore colors < 2% of image
                 )
                 result = ConversionResult()
                 svg_path = Path(pipeline_result["combined_svg"])

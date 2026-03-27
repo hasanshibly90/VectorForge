@@ -97,13 +97,19 @@ def _trace_mask_with_potrace(
     smoothed = gaussian_filter(mask.astype(np.float64), sigma=sigma)
     smoothed = (smoothed > 0.5).astype(np.uint8)
 
-    # Remove small components
+    # Morphological cleanup: close gaps then open to remove specks
     struct = ndimage.generate_binary_structure(2, 2)
+    smoothed = ndimage.binary_closing(smoothed, structure=struct, iterations=3)
+    smoothed = ndimage.binary_opening(smoothed, structure=struct, iterations=2)
+
+    # Remove small connected components (speckles)
     labeled, n = ndimage.label(smoothed, structure=struct)
     if n > 0:
         sizes = ndimage.sum(smoothed, labeled, range(1, n + 1))
+        largest = max(sizes) if len(sizes) > 0 else 0
         for i, sz in enumerate(sizes):
-            if sz < turdsize:
+            # Remove components < 1% of largest OR < turdsize pixels
+            if sz < max(turdsize, largest * 0.01):
                 smoothed[labeled == (i + 1)] = 0
 
     # Potrace traces BLACK pixels — invert
