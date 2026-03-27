@@ -229,40 +229,37 @@ async def convert_raster_to_vector(
     color_defs: dict | None = None,
     transparent_color=None,
 ) -> ConversionResult:
-    """Convert raster image using the CNC-grade potrace pipeline.
+    """Convert raster image to vector.
 
-    Produces 5 output files per conversion:
-    - combined SVG, 300dpi BMP, transparent PNG, layers JSON, per-layer SVGs
+    Strategy:
+    - COLOR mode: vtracer (native multi-color, O(n), stacked output)
+    - BINARY mode: potrace (optimal Bezier for CNC/laser, 2-color)
 
-    Falls back to vtracer if potrace is not installed.
+    Both produce: combined SVG, 300dpi BMP, transparent PNG, JSON metadata.
     """
-    import subprocess
-
     output_dir.mkdir(parents=True, exist_ok=True)
-    result = ConversionResult()
     start = time.perf_counter()
     stem = input_path.stem
     if len(stem) > 30:
         stem = stem[:30].rstrip("_")
 
-    # Check if potrace is available (system PATH or local binary)
-    potrace_available = False
-    potrace_bin = "potrace"
-    for candidate in ["potrace", str(Path(__file__).resolve().parent.parent.parent / "potrace.exe")]:
-        try:
-            subprocess.run([candidate, "--version"], capture_output=True, timeout=5)
-            potrace_bin = candidate
-            potrace_available = True
-            break
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            continue
-
-    if potrace_available:
+    if settings.colormode.value == "binary":
+        # Binary mode: use potrace CNC pipeline for optimal 2-color Bezier output
+        import subprocess
+        potrace_bin = "potrace"
+        for candidate in ["potrace", str(Path(__file__).resolve().parent.parent.parent / "potrace.exe")]:
+            try:
+                subprocess.run([candidate, "--version"], capture_output=True, timeout=5)
+                potrace_bin = candidate
+                break
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                continue
         result = await _convert_with_potrace(
             input_path, output_dir, settings, stem, color_defs, transparent_color, potrace_bin
         )
     else:
-        result = await _convert_with_vtracer(input_path, output_dir, settings, stem)
+        # Color mode: use vtracer for native multi-color vectorization
+        result = await _convert_with_vtracer_full(input_path, output_dir, settings, stem)
 
     elapsed = time.perf_counter() - start
     result.processing_time_ms = int(elapsed * 1000)
@@ -348,49 +345,97 @@ async def _convert_with_potrace(
     return result
 
 
-async def _convert_with_vtracer(
+async def _convert_with_vtracer_full(
     input_path: Path,
     output_dir: Path,
     settings: ConversionSettings,
     stem: str,
 ) -> ConversionResult:
-    """Fallback: use vtracer when potrace is not installed."""
+    """Primary engine: vtracer for full-color native vectorization.
+
+    vtracer handles multi-color images natively — no manual color separation,
+    no KMeans, no morphological cleanup needed. O(n) algorithm, stacked output.
+    """
     import vtracer
+    import xml.etree.ElementTree as ET
+    from collections import Counter
 
     result = ConversionResult()
 
-    # Ensure PNG input
-    if input_path.suffix.lower() != ".png":
+    # Ensure PNG input (vtracer works best with PNG)
+    if input_path.suffix.lower() not in (".png", ".bmp"):
         png_path = output_dir / "input.png"
         with Image.open(input_path) as img:
             img.save(png_path, "PNG")
         input_path = png_path
 
-    # Map settings
-    filter_speckle = max(1, 11 - settings.detail_level)
-    color_precision = max(1, settings.detail_level)
-    corner_threshold = 30 + (settings.smoothing * 10)
-    length_threshold = max(2.0, settings.smoothing * 1.5)
-    splice_threshold = max(10, settings.smoothing * 5)
+    # Map user settings to vtracer parameters
+    # Detail: higher = more detail (lower speckle filter, higher precision)
+    filter_speckle = max(2, 12 - settings.detail_level)  # 10->2, 1->11
+    color_precision = max(3, min(8, settings.detail_level))  # 3->8
+    layer_difference = max(10, 40 - settings.detail_level * 3)  # 37->10
+
+    # Smoothing: higher = smoother curves
+    corner_threshold = max(20, 30 + settings.smoothing * 8)  # 38->110
+    length_threshold = max(2.0, settings.smoothing * 1.2)  # 1.2->12
+    splice_threshold = max(20, settings.smoothing * 6)  # 6->60
 
     combined_svg = output_dir / f"{stem}_combined.svg"
 
     vtracer.convert_image_to_svg_py(
         image_path=str(input_path),
         out_path=str(combined_svg),
-        colormode=settings.colormode.value,
+        colormode="color",
+        hierarchical="stacked",
+        mode="spline",
         filter_speckle=filter_speckle,
         color_precision=color_precision,
+        layer_difference=layer_difference,
         corner_threshold=corner_threshold,
         length_threshold=length_threshold,
         splice_threshold=splice_threshold,
-        mode="spline",
+        max_iterations=10,
+        path_precision=3,
     )
     result.combined_svg_path = combined_svg
 
-    # Generate BMP and PNG from input
+    # Parse SVG to extract layer info (colors + paths)
+    layers = []
+    try:
+        tree = ET.parse(str(combined_svg))
+        root = tree.getroot()
+        ns = "{http://www.w3.org/2000/svg}"
+        all_paths = root.findall(f".//{ns}path") or root.findall(".//path")
+
+        # Count colors
+        color_counts = Counter()
+        for p in all_paths:
+            fill = p.get("fill", "").upper()
+            if fill and fill != "NONE":
+                color_counts[fill] += len(p.get("d", ""))
+
+        total_d = sum(color_counts.values()) or 1
+        for color, d_len in color_counts.most_common():
+            r = int(color[1:3], 16) if len(color) == 7 else 0
+            g = int(color[3:5], 16) if len(color) == 7 else 0
+            b = int(color[5:7], 16) if len(color) == 7 else 0
+            name = _nameColor([r, g, b])
+            layers.append(LayerInfo(
+                name=name,
+                color_hex=color.lower(),
+                area_pct=round(d_len / total_d * 100, 1),
+                svg_file=f"{stem}_combined.svg",
+            ))
+    except Exception:
+        pass
+
+    result.layers = layers
+
+    # Generate BMP (300 DPI) and PNG (transparent) from input
     with Image.open(input_path) as img:
         rgb = img.convert("RGB")
+        w, h = rgb.size
+
         bmp_path = output_dir / f"{stem}_300dpi.bmp"
         rgb.save(str(bmp_path), format="BMP", dpi=(300, 300))
         result.bmp_path = bmp_path
@@ -400,16 +445,42 @@ async def _convert_with_vtracer(
         rgba.save(str(png_path), dpi=(300, 300))
         result.png_path = png_path
 
-    # Write minimal layers JSON
+    # Generate HTML layer viewer
+    try:
+        from app.services.generate_viewer import generate_viewer
+        viewer_path = generate_viewer(str(output_dir))
+        if viewer_path.exists():
+            result.viewer_html_path = viewer_path
+    except Exception:
+        pass
+
+    # Write metadata JSON
     meta = {
         "source": stem,
-        "dimensions": {"width": rgb.width, "height": rgb.height},
-        "dpi": 300,
         "engine": "vtracer",
-        "layers": [{"name": "combined", "color": "#000000", "area_pct": 100.0, "svg_file": combined_svg.name}],
+        "dimensions": {"width": w, "height": h},
+        "dpi": 300,
+        "layers": [
+            {"name": l.name, "color": l.color_hex, "area_pct": l.area_pct, "svg_file": l.svg_file}
+            for l in layers
+        ],
     }
     layers_json = output_dir / f"{stem}_layers.json"
     layers_json.write_text(json.dumps(meta, indent=2))
     result.layers_json_path = layers_json
 
     return result
+
+
+def _nameColor(rgb: list) -> str:
+    """Name a color based on RGB values."""
+    r, g, b = int(rgb[0]), int(rgb[1]), int(rgb[2])
+    if r > 200 and g > 200 and b > 200: return "white"
+    if r < 40 and g < 40 and b < 40: return "black"
+    if r > 150 and g < 80 and b < 80: return "red"
+    if g > 150 and r < 80 and b < 80: return "green"
+    if b > 150 and r < 80 and g < 80: return "blue"
+    if r > 180 and g > 150 and b < 80: return "yellow"
+    if r > 180 and g > 100 and b < 60: return "orange"
+    if r > 100 and g > 100 and b > 100 and r < 200: return "gray"
+    return f"color_{r:02x}{g:02x}{b:02x}"
