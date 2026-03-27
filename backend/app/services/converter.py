@@ -425,20 +425,32 @@ async def convert_raster_to_vector(
             input_path, output_dir, settings, stem, color_defs, transparent_color, potrace_bin
         )
     else:
-        # Color mode: try potrace hybrid (premium) first, fall back to vtracer
-        try:
-            from app.services.potrace_hybrid import potrace_hybrid_convert, _find_potrace
-            potrace_bin = _find_potrace()
-            if potrace_bin and settings.detail_level >= 5:
-                # Potrace hybrid: per-color-layer potrace for CNC-grade curves
+        # Color mode: auto-detect flat vs gradient → choose engine
+        with Image.open(input_path) as _img:
+            _pixels = np.array(_img.convert("RGB"))
+        has_gradients = _detect_gradients(_pixels)
+
+        use_potrace_hybrid = False
+        if not has_gradients:
+            # FLAT image (logo, icon) → potrace hybrid for CNC-grade curves
+            try:
+                from app.services.potrace_hybrid import _find_potrace
+                if _find_potrace():
+                    use_potrace_hybrid = True
+            except Exception:
+                pass
+
+        if use_potrace_hybrid:
+            try:
+                from app.services.potrace_hybrid import potrace_hybrid_convert
                 pipeline_result = potrace_hybrid_convert(
                     input_path=str(input_path),
                     output_dir=str(output_dir),
                     upscale_target=6400,
-                    gaussian_sigma=3.0,           # Higher = smoother edges
+                    gaussian_sigma=3.0,
                     potrace_alphamax=1.334,
-                    potrace_turdsize=500,          # Aggressive speckle removal
-                    min_color_pct=2.0,             # Ignore colors < 2% of image
+                    potrace_turdsize=500,
+                    min_color_pct=2.0,
                 )
                 result = ConversionResult()
                 svg_path = Path(pipeline_result["combined_svg"])
@@ -468,10 +480,13 @@ async def convert_raster_to_vector(
                         result.viewer_html_path = vp
                 except Exception:
                     pass
-            else:
-                raise RuntimeError("Potrace not available or low detail")
-        except Exception:
-            # Fall back to vtracer
+            except Exception:
+                # Potrace hybrid failed — fall back to vtracer
+                result = await _convert_with_vtracer_full(
+                    input_path, output_dir, settings, stem, custom_colors_hex=custom_colors_hex
+                )
+        else:
+            # GRADIENT image → vtracer handles gradients naturally
             result = await _convert_with_vtracer_full(
                 input_path, output_dir, settings, stem, custom_colors_hex=custom_colors_hex
             )
