@@ -599,27 +599,33 @@ async def _convert_with_vtracer_full(
     s = settings.smoothing
 
     # Step 1: MAXIMUM QUALITY preprocessing
-    # Upscale 4x + Gaussian blur + bilateral filter
-    # Speed doesn't matter — quality is everything
+    # Auto-crop + Upscale 4x + Gaussian + Bilateral
     import cv2
+    from app.services.preprocessing import auto_crop_content
     with Image.open(input_path) as img:
         rgb = img.convert("RGB")
-        orig_w, orig_h = rgb.size
+        img_array = np.array(rgb)
+
+        # Auto-crop: removes background artifacts outside the design
+        img_array = auto_crop_content(img_array, padding_pct=0.01)
+
+        orig_h, orig_w = img_array.shape[:2]
 
         # Upscale 4x for maximum curve resolution
         target = max(orig_w, orig_h) * 4
-        target = min(target, 8000)  # Cap at 8000px to prevent memory issues
+        target = min(target, 8000)
         scale = target / max(orig_w, orig_h)
         if scale > 1.0:
-            rgb = rgb.resize((int(orig_w * scale), int(orig_h * scale)), Image.LANCZOS)
+            pil_img = Image.fromarray(img_array)
+            pil_img = pil_img.resize((int(orig_w * scale), int(orig_h * scale)), Image.LANCZOS)
+            img_array = np.array(pil_img)
 
-        img_array = np.array(rgb)
         bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
-        # Gaussian blur — smooths pixel staircase at edges
+        # Gaussian blur — smooths pixel staircase
         bgr = cv2.GaussianBlur(bgr, (0, 0), 2.0)
 
-        # Bilateral filter — re-sharpens edges while keeping smooth regions
+        # Bilateral filter — preserves edges
         bgr = cv2.bilateralFilter(bgr, 9, 50, 50)
 
         rgb_out = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
