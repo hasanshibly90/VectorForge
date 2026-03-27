@@ -143,6 +143,7 @@ async def create_conversion(
     detail_level: int = Form(default=5, ge=1, le=10),
     smoothing: int = Form(default=5, ge=1, le=10),
     output_formats: str = Form(default="svg"),
+    custom_colors: str = Form(default=""),  # JSON: {colors: [{hex, name}], transparent: hex}
     user: User | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -164,6 +165,10 @@ async def create_conversion(
         smoothing=smoothing, output_formats=formats,
     )
 
+    settings_data = conversion_settings.model_dump(mode="json")
+    if custom_colors:
+        settings_data["custom_colors"] = custom_colors
+
     conversion = Conversion(
         id=job_id, user_id=user.id if user else None,
         status=ConversionStatus.PENDING,
@@ -171,7 +176,7 @@ async def create_conversion(
         original_format=ext.lstrip("."),
         original_size_bytes=len(content),
         input_path=upload_key,
-        settings_json=conversion_settings.model_dump(mode="json"),
+        settings_json=settings_data,
     )
     db.add(conversion)
     await db.commit()

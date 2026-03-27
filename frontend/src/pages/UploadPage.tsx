@@ -1,14 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Archive, ChevronDown, Download, Eye, FileCode, Layers, Play, Printer, RotateCcw, Share2, Sparkles, Upload, X } from "lucide-react";
+import { Archive, ChevronDown, Download, Eye, FileCode, Layers, Palette, Play, Printer, RotateCcw, Share2, Sparkles, Upload, X } from "lucide-react";
 import { useDropzone } from "react-dropzone";
 import { useSearchParams } from "react-router-dom";
 import { getConversion, uploadFile, downloadConversion, shareConversion } from "../api/client";
 import type { Conversion } from "../types";
 import SVGPreview from "../components/SVGPreview";
 import CompareSlider from "../components/CompareSlider";
+import ColorEditor, { type ColorEntry } from "../components/ColorEditor";
 import DownloadButton from "../components/DownloadButton";
 
-type Stage = "idle" | "selected" | "uploading" | "converting" | "done" | "error";
+type Stage = "idle" | "selected" | "analyzing" | "editing" | "uploading" | "converting" | "done" | "error";
+
+function _nameColor(rgb: number[]): string {
+  const [r, g, b] = rgb;
+  if (r > 200 && g > 200 && b > 200) return "white";
+  if (r < 40 && g < 40 && b < 40) return "black";
+  if (r > 150 && g < 80 && b < 80) return "red";
+  if (g > 150 && r < 80 && b < 80) return "green";
+  if (b > 150 && r < 80 && g < 80) return "blue";
+  if (r > 180 && g > 150 && b < 80) return "yellow";
+  if (r > 180 && g > 100 && b < 60) return "orange";
+  if (r > 100 && g > 100 && b > 100 && r < 200) return "gray";
+  return `color_${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
 
 const ACCEPTED = {
   "image/png": [".png"],
@@ -26,6 +40,7 @@ export default function UploadPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [shareUrl, setShareUrl] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [detectedColors, setDetectedColors] = useState<ColorEntry[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Settings (can be pre-filled from URL params via /prompts "Try This" button)
@@ -44,7 +59,32 @@ export default function UploadPage() {
     setConversion(null);
     setErrorMsg("");
     setShareUrl("");
-    setStage("selected");
+    setDetectedColors([]);
+    // Auto-analyze colors
+    setStage("analyzing");
+    const form = new FormData();
+    form.append("file", f);
+    import("../api/client").then(({ default: api }) => {
+      api.post("/conversions/analyze-colors", form, { headers: { "Content-Type": "multipart/form-data" } })
+        .then((res) => {
+          const analyzed: ColorEntry[] = res.data.colors
+            .filter((c: any) => c.percentage > 1)
+            .slice(0, 8)
+            .map((c: any, i: number) => ({
+              hex: c.hex,
+              name: _nameColor(c.rgb),
+              percentage: c.percentage,
+              isTransparent: i === 0, // largest = background
+              enabled: true,
+            }));
+          setDetectedColors(analyzed);
+          setStage("editing");
+        })
+        .catch(() => {
+          // If analysis fails, skip to manual convert
+          setStage("selected");
+        });
+    });
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -75,13 +115,25 @@ export default function UploadPage() {
     if (!file) return;
     setStage("uploading");
     setErrorMsg("");
+
+    // Build custom colors JSON if user edited them
+    const activeColors = detectedColors.filter(c => c.enabled && !c.isTransparent);
+    const bgColor = detectedColors.find(c => c.isTransparent);
+    const customColorsJson = activeColors.length > 0 ? JSON.stringify({
+      colors: activeColors.map(c => ({ hex: c.hex, name: c.name })),
+      transparent: bgColor ? bgColor.hex : null,
+    }) : "";
+
     try {
-      const res = await uploadFile(file, {
+      const settings: Record<string, string> = {
         colormode,
         detail_level: String(detail),
         smoothing: String(smoothing),
         output_formats: "svg",
-      });
+      };
+      if (customColorsJson) settings.custom_colors = customColorsJson;
+
+      const res = await uploadFile(file, settings);
       setConversion(res.data);
       setStage("converting");
       startPolling(res.data.id);
@@ -103,6 +155,7 @@ export default function UploadPage() {
     setConversion(null);
     setErrorMsg("");
     setShareUrl("");
+    setDetectedColors([]);
     setStage("idle");
   };
 
@@ -145,10 +198,27 @@ export default function UploadPage() {
         </div>
       )}
 
-      {/* ── STAGE: selected ── */}
+      {/* ── STAGE: analyzing ── */}
+      {stage === "analyzing" && (
+        <div className="card text-center py-10">
+          <div className="w-10 h-10 border-2 border-accent-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-white font-semibold">Analyzing colors...</p>
+          <p className="text-xs text-dark-400 mt-1">Detecting dominant colors in your image</p>
+        </div>
+      )}
+
+      {/* ── STAGE: selected (fallback if analysis failed) ── */}
       {stage === "selected" && file && (
+        <div className="card text-center py-8">
+          <p className="text-dark-400 mb-3">Color analysis unavailable</p>
+          <button onClick={handleConvert} className="btn-primary">Convert Anyway</button>
+        </div>
+      )}
+
+      {/* ── STAGE: editing (color picker + settings + convert) ── */}
+      {stage === "editing" && file && (
         <div className="space-y-4">
-          {/* File preview card */}
+          {/* File preview */}
           <div className="card flex items-center gap-4">
             {preview && (
               <img src={preview} alt="" className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover bg-dark-900 border border-dark-700 flex-shrink-0" />
@@ -161,6 +231,9 @@ export default function UploadPage() {
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {/* Color Editor */}
+          <ColorEditor colors={detectedColors} onChange={setDetectedColors} previewUrl={preview} />
 
           {/* Settings (collapsible on mobile) */}
           <div className="card !p-0 overflow-hidden">

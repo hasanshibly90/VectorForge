@@ -36,13 +36,54 @@ async def run_conversion(conversion_id: str) -> None:
             result_dir = storage.get_path(result_dir_key)
             result_dir.mkdir(parents=True, exist_ok=True)
 
-            settings = ConversionSettings(**conversion.settings_json)
+            settings_data = conversion.settings_json or {}
+            custom_colors_json = settings_data.pop("custom_colors", "")
+            settings = ConversionSettings(**settings_data)
+
+            # Parse custom colors if user provided them via color picker
+            color_defs = None
+            transparent_color = None
+            if custom_colors_json:
+                import json as _json
+                import numpy as np
+                try:
+                    cc = _json.loads(custom_colors_json)
+                    color_defs = {}
+                    for c in cc.get("colors", []):
+                        hex_c = c["hex"]
+                        r_c = int(hex_c[1:3], 16)
+                        g_c = int(hex_c[3:5], 16)
+                        b_c = int(hex_c[5:7], 16)
+                        center = np.array([r_c, g_c, b_c])
+                        color_defs[c.get("name", hex_c)] = {
+                            "threshold": lambda r, g, b, c=center: (
+                                ((r.astype(int) - int(c[0])) ** 2 +
+                                 (g.astype(int) - int(c[1])) ** 2 +
+                                 (b.astype(int) - int(c[2])) ** 2) < 3600
+                            ),
+                            "hex": hex_c,
+                        }
+                    trans_hex = cc.get("transparent")
+                    if trans_hex:
+                        tr = int(trans_hex[1:3], 16)
+                        tg = int(trans_hex[3:5], 16)
+                        tb = int(trans_hex[5:7], 16)
+                        tc = np.array([tr, tg, tb])
+                        transparent_color = lambda r, g, b, c=tc: (
+                            ((r.astype(int) - int(c[0])) ** 2 +
+                             (g.astype(int) - int(c[1])) ** 2 +
+                             (b.astype(int) - int(c[2])) ** 2) < 3600
+                        )
+                except Exception:
+                    pass  # Fall back to auto-detect
 
             # Run CNC-grade pipeline (potrace) or vtracer fallback
             conv_result = await convert_raster_to_vector(
                 input_path=input_path,
                 output_dir=result_dir,
                 settings=settings,
+                color_defs=color_defs,
+                transparent_color=transparent_color,
             )
 
             # Populate all output paths
