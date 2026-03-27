@@ -521,65 +521,38 @@ async def _convert_with_vtracer_full(
     stem: str,
     custom_colors_hex: list[str] | None = None,
 ) -> ConversionResult:
-    """Primary engine: vtracer for full-color native vectorization.
+    """Primary engine: raw vtracer trace + SVG color grouping post-process.
 
-    vtracer handles multi-color images natively — no manual color separation,
-    no KMeans, no morphological cleanup needed. O(n) algorithm, stacked output.
+    Strategy: NO preprocessing on the image (which always introduced artifacts).
+    Instead:
+    1. Let vtracer trace the RAW image (best quality, many colors)
+    2. Group similar colors in the SVG output by hue family
+    3. Recolor each group to one representative color
+
+    This preserves tracing quality while producing clean color layers.
     """
     import vtracer
-    import xml.etree.ElementTree as ET
-    from collections import Counter
 
     result = ConversionResult()
-
-    # Determine image type preset from settings
     d = settings.detail_level
-    if d >= 7:
-        preset = "logo"
-    elif d >= 5:
-        preset = "artwork"
-    else:
-        preset = "photo"
+    s = settings.smoothing
 
-    # Strategy: ALWAYS group pixels by hue family for clean vectorization.
-    # All yellows → one yellow, all greens → one green, etc.
-    # This works for BOTH flat and gradient images.
-    with Image.open(input_path) as img:
-        processed = np.array(img.convert("RGB"))
+    # Step 1: Ensure PNG input (vtracer works best with PNG)
+    if input_path.suffix.lower() not in (".png", ".bmp"):
+        png_path = output_dir / "input.png"
+        with Image.open(input_path) as img:
+            img.save(png_path, "PNG")
+        input_path = png_path
 
-    if custom_colors_hex and len(custom_colors_hex) >= 2:
-        # User explicitly set colors — snap to those
-        centers = np.array([
-            [int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)]
-            for h in custom_colors_hex if len(h) >= 7
-        ], dtype=np.float32)
-        if len(centers) >= 2:
-            processed = _snap_to_palette(processed, centers)
-    else:
-        # Auto: detect focused priority colors by hue family
-        processed = _snap_to_hue_families(processed)
-
-    # Save preprocessed image as PNG for vtracer
-    preprocessed_path = output_dir / "preprocessed.png"
-    Image.fromarray(processed).save(str(preprocessed_path), "PNG")
-    input_path = preprocessed_path
-
-    # Quality-optimized vtracer parameters
-    # Key insight: lower filter_speckle + higher color_precision = better quality
-    # cutout mode = cleaner edges for logos/icons
-    d = settings.detail_level  # 1-10
-    s = settings.smoothing     # 1-10
-
-    filter_speckle = max(1, 6 - d // 2)        # detail 1->5, 10->1
-    color_precision = min(8, max(5, d))         # 5->8
-    layer_difference = max(8, 30 - d * 2)       # 28->10
-    corner_threshold = max(30, 20 + s * 7)      # 27->90
-    length_threshold = max(1.5, 1.0 + s * 0.4)  # 1.4->5.0
-    splice_threshold = max(20, 10 + s * 5)      # 15->60
-    path_precision = min(8, max(3, d))           # 3->8
-    max_iterations = min(15, max(8, d + 3))      # 4->13
-
-    # cutout mode for logos (clean edges), stacked for photos (compact)
+    # Step 2: Trace RAW image with vtracer — no preprocessing, no snapping
+    filter_speckle = max(1, 6 - d // 2)
+    color_precision = min(8, max(5, d))
+    layer_difference = max(8, 30 - d * 2)
+    corner_threshold = max(30, 20 + s * 7)
+    length_threshold = max(1.5, 1.0 + s * 0.4)
+    splice_threshold = max(20, 10 + s * 5)
+    path_precision = min(8, max(3, d))
+    max_iterations = min(15, max(8, d + 3))
     hierarchical = "cutout" if d >= 6 else "stacked"
 
     combined_svg = output_dir / f"{stem}_combined.svg"
@@ -599,79 +572,42 @@ async def _convert_with_vtracer_full(
         max_iterations=max_iterations,
         path_precision=path_precision,
     )
+
+    # Step 3: Post-process SVG — group colors by hue family
+    from app.services.svg_color_grouper import group_svg_colors
+    try:
+        _, layer_info = group_svg_colors(combined_svg, max_groups=12)
+    except Exception:
+        layer_info = []
+
     result.combined_svg_path = combined_svg
 
-    # Note: SVG optimizer disabled — was stripping xmlns namespace causing
-    # broken rendering in <img> tags. vtracer output is already clean.
-
-    # Parse SVG to extract layer info (colors + paths)
-    layers = []
-    try:
-        tree = ET.parse(str(combined_svg))
-        root = tree.getroot()
-        ns = "{http://www.w3.org/2000/svg}"
-        all_paths = root.findall(f".//{ns}path") or root.findall(".//path")
-
-        # Count colors
-        color_counts = Counter()
-        for p in all_paths:
-            fill = p.get("fill", "").upper()
-            if fill and fill != "NONE":
-                color_counts[fill] += len(p.get("d", ""))
-
-        # Group similar colors — merge within 60 RGB distance
-        total_d = sum(color_counts.values()) or 1
-        sorted_colors = color_counts.most_common()
-        merged_layers = []
-        used = set()
-        for color, d_len in sorted_colors:
-            if color in used:
-                continue
-            r1 = int(color[1:3], 16) if len(color) >= 7 else 0
-            g1 = int(color[3:5], 16) if len(color) >= 7 else 0
-            b1 = int(color[5:7], 16) if len(color) >= 7 else 0
-            group_d = d_len
-            used.add(color)
-            # Merge nearby colors into this group
-            for c2, d2 in sorted_colors:
-                if c2 in used or len(c2) < 7:
-                    continue
-                r2 = int(c2[1:3], 16)
-                g2 = int(c2[3:5], 16)
-                b2 = int(c2[5:7], 16)
-                dist = ((r1-r2)**2 + (g1-g2)**2 + (b1-b2)**2) ** 0.5
-                if dist < 60:
-                    group_d += d2
-                    used.add(c2)
-            pct = round(group_d / total_d * 100, 1)
-            if pct >= 0.5:  # only show colors >= 0.5%
-                merged_layers.append(LayerInfo(
-                    name=_nameColor([r1, g1, b1]),
-                    color_hex=color.lower(),
-                    area_pct=pct,
-                    svg_file=f"{stem}_combined.svg",
-                ))
-        layers = merged_layers[:20]  # max 20 layers in UI
-    except Exception:
-        pass
-
+    # Build layer list from grouper output
+    layers = [
+        LayerInfo(
+            name=li["name"],
+            color_hex=li["color"],
+            area_pct=li["area_pct"],
+            svg_file=f"{stem}_combined.svg",
+        )
+        for li in layer_info
+        if li["area_pct"] >= 0.5
+    ][:20]
     result.layers = layers
 
-    # Generate BMP (300 DPI) and PNG (transparent) from input
+    # Step 4: Generate BMP and PNG from ORIGINAL input (not preprocessed)
     with Image.open(input_path) as img:
         rgb = img.convert("RGB")
         w, h = rgb.size
-
         bmp_path = output_dir / f"{stem}_300dpi.bmp"
         rgb.save(str(bmp_path), format="BMP", dpi=(300, 300))
         result.bmp_path = bmp_path
-
         rgba = img.convert("RGBA")
         png_path = output_dir / f"{stem}_transparent.png"
         rgba.save(str(png_path), dpi=(300, 300))
         result.png_path = png_path
 
-    # Write metadata JSON FIRST (viewer needs it)
+    # Step 5: Write metadata JSON
     meta = {
         "source": stem,
         "engine": "vtracer",
@@ -686,7 +622,7 @@ async def _convert_with_vtracer_full(
     layers_json.write_text(json.dumps(meta, indent=2))
     result.layers_json_path = layers_json
 
-    # Generate HTML layer viewer (after JSON is written)
+    # Step 6: Generate HTML viewer
     try:
         from app.services.generate_viewer import generate_viewer
         viewer_path = generate_viewer(str(output_dir))
