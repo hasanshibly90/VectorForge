@@ -41,6 +41,8 @@ export default function UploadPage() {
   const [shareUrl, setShareUrl] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [detectedColors, setDetectedColors] = useState<ColorEntry[]>([]);
+  const [showSegmented, setShowSegmented] = useState(false);
+  const [segmentedUrl, setSegmentedUrl] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Settings (can be pre-filled from URL params via /prompts "Try This" button)
@@ -156,7 +158,32 @@ export default function UploadPage() {
     setErrorMsg("");
     setShareUrl("");
     setDetectedColors([]);
+    setShowSegmented(false);
+    if (segmentedUrl) URL.revokeObjectURL(segmentedUrl);
+    setSegmentedUrl("");
     setStage("idle");
+  };
+
+  const fetchSegmentedPreview = async () => {
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    const activeColors = detectedColors.filter(c => c.enabled && !c.isTransparent);
+    const bgColor = detectedColors.find(c => c.isTransparent);
+    form.append("colors_json", JSON.stringify({
+      colors: activeColors.map(c => ({ hex: c.hex, name: c.name })),
+      transparent: bgColor?.hex || null,
+    }));
+    try {
+      const { default: api } = await import("../api/client");
+      const res = await api.post("/conversions/segmentation-preview", form, {
+        responseType: "blob",
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      if (segmentedUrl) URL.revokeObjectURL(segmentedUrl);
+      setSegmentedUrl(URL.createObjectURL(res.data));
+      setShowSegmented(true);
+    } catch {}
   };
 
   const handleShare = async () => {
@@ -218,22 +245,55 @@ export default function UploadPage() {
       {/* ── STAGE: editing (color picker + settings + convert) ── */}
       {stage === "editing" && file && (
         <div className="space-y-4">
-          {/* File preview */}
-          <div className="card flex items-center gap-4">
-            {preview && (
-              <img src={preview} alt="" className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover bg-dark-900 border border-dark-700 flex-shrink-0" />
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-white truncate text-sm sm:text-base">{file.name}</p>
-              <p className="text-xs text-dark-400 mt-0.5">{kb(file.size)} &middot; {file.type.split("/")[1]?.toUpperCase()}</p>
+          {/* Image preview with segmentation toggle */}
+          <div className="card !p-3">
+            <div className="flex items-center justify-between mb-3 px-2">
+              <div className="flex items-center gap-2">
+                <Eye className="w-3.5 h-3.5 text-accent-400" />
+                <span className="text-xs font-medium text-dark-400">
+                  {showSegmented ? "Segmentation Preview" : "Original Image"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { if (segmentedUrl) setShowSegmented(false); }}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+                    !showSegmented ? "bg-accent-500/20 text-accent-400" : "text-dark-500 hover:text-dark-300"
+                  }`}
+                >
+                  Original
+                </button>
+                <button
+                  onClick={() => { if (segmentedUrl) setShowSegmented(true); else fetchSegmentedPreview(); }}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+                    showSegmented ? "bg-accent-500/20 text-accent-400" : "text-dark-500 hover:text-dark-300"
+                  }`}
+                >
+                  Segmented
+                </button>
+              </div>
             </div>
-            <button onClick={handleReset} className="p-2 text-dark-400 hover:text-red-400 flex-shrink-0">
-              <X className="w-5 h-5" />
-            </button>
+            <div
+              className="rounded-xl overflow-hidden max-h-[50vh]"
+              style={{ backgroundImage: "repeating-conic-gradient(#151520 0% 25%, #1a1a28 0% 50%)", backgroundSize: "16px 16px" }}
+            >
+              <img
+                src={showSegmented && segmentedUrl ? segmentedUrl : preview}
+                alt={showSegmented ? "Segmented" : "Original"}
+                className="w-full object-contain max-h-[50vh]"
+              />
+            </div>
+            {/* File info bar */}
+            <div className="flex items-center justify-between mt-2 px-2">
+              <p className="text-xs text-dark-400 truncate">{file.name} &middot; {kb(file.size)}</p>
+              <button onClick={handleReset} className="text-xs text-dark-500 hover:text-red-400">
+                Remove
+              </button>
+            </div>
           </div>
 
           {/* Color Editor */}
-          <ColorEditor colors={detectedColors} onChange={setDetectedColors} previewUrl={preview} />
+          <ColorEditor colors={detectedColors} onChange={(c) => { setDetectedColors(c); setShowSegmented(false); setSegmentedUrl(""); }} previewUrl={preview} />
 
           {/* Settings (collapsible on mobile) */}
           <div className="card !p-0 overflow-hidden">

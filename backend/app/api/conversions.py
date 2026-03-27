@@ -133,6 +133,115 @@ async def analyze_colors(
         tmp_path.unlink(missing_ok=True)
 
 
+# ── Segmentation Preview ──────────────────────────────────────────────
+
+@router.post("/segmentation-preview")
+async def segmentation_preview(
+    file: UploadFile,
+    colors_json: str = Form(default=""),
+):
+    """Generate a segmented preview image showing color regions.
+
+    Each pixel is painted with the color of its assigned layer.
+    Returns a PNG image.
+    """
+    import io
+    import json
+    import tempfile
+    import numpy as np
+    from PIL import Image
+    from fastapi.responses import StreamingResponse
+
+    ext = _validate_file(file)
+    content = await file.read()
+
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+
+    try:
+        img = Image.open(tmp_path).convert("RGB")
+        # Resize for fast preview (max 800px)
+        w, h = img.size
+        scale = min(1.0, 800 / max(w, h))
+        if scale < 1.0:
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+
+        pixels = np.array(img)
+        ph, pw = pixels.shape[:2]
+        r, g, b = pixels[:, :, 0], pixels[:, :, 1], pixels[:, :, 2]
+
+        # Parse custom colors or auto-detect
+        color_list = []
+        bg_hex = None
+        if colors_json:
+            try:
+                cc = json.loads(colors_json)
+                for c in cc.get("colors", []):
+                    color_list.append(c["hex"])
+                bg_hex = cc.get("transparent")
+            except Exception:
+                pass
+
+        if not color_list:
+            # Auto-detect from analyze_colors
+            from app.services.converter import analyze_colors as _analyze
+            analyzed = _analyze(tmp_path, 8)
+            color_list = [c["hex"] for c in analyzed if c["percentage"] > 2]
+            if color_list:
+                bg_hex = color_list[0]  # largest = background
+                color_list = color_list[1:]
+
+        # Build segmented image
+        segmented = np.full((ph, pw, 3), 255, dtype=np.uint8)
+
+        # Assign each pixel to nearest color
+        all_colors = []
+        if bg_hex:
+            all_colors.append(bg_hex)
+        all_colors.extend(color_list)
+
+        centers = []
+        for hex_c in all_colors:
+            rc = int(hex_c[1:3], 16)
+            gc = int(hex_c[3:5], 16)
+            bc = int(hex_c[5:7], 16)
+            centers.append([rc, gc, bc])
+        centers_arr = np.array(centers, dtype=float)
+
+        # Compute distances for each pixel to each center
+        flat_pixels = pixels.reshape(-1, 3).astype(float)
+        dists = np.sqrt(((flat_pixels[:, None, :] - centers_arr[None, :, :]) ** 2).sum(axis=2))
+        nearest = dists.argmin(axis=1)
+
+        # Paint each pixel with its assigned color
+        for i, (rc, gc, bc) in enumerate(centers):
+            mask = nearest == i
+            segmented.reshape(-1, 3)[mask] = [rc, gc, bc]
+
+        # Make background a checkerboard pattern
+        if bg_hex:
+            bg_mask = nearest == 0  # first color is background
+            checker = np.zeros((ph, pw), dtype=bool)
+            for y in range(ph):
+                for x in range(pw):
+                    if (x // 8 + y // 8) % 2 == 0:
+                        checker[y, x] = True
+            bg_pixels = bg_mask.reshape(ph, pw)
+            segmented[bg_pixels & checker] = [200, 200, 200]
+            segmented[bg_pixels & ~checker] = [230, 230, 230]
+
+        # Convert to PNG
+        preview_img = Image.fromarray(segmented)
+        buf = io.BytesIO()
+        preview_img.save(buf, format="PNG", optimize=True)
+        buf.seek(0)
+
+        return StreamingResponse(buf, media_type="image/png")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 # ── Single Upload ─────────────────────────────────────────────────────
 
 @router.post("", response_model=ConversionResponse, status_code=201)
