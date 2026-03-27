@@ -76,35 +76,45 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
     img = Image.open(input_path).convert("RGB")
     pixels = np.array(img).reshape(-1, 3)
 
-    # Detect color variety to decide cluster count
-    # Quantize to 64-level buckets and count unique colors
-    quantized_unique = len(set(map(tuple, (pixels[::50] // 64) * 64)))
-    # Simple images (2-3 unique quantized) -> 3 clusters
-    # Complex images (10+ unique quantized) -> up to 8 clusters
-    n_clusters = min(8, max(3, quantized_unique // 2))
+    # Use MORE clusters to catch small color groups (like red text on a logo)
+    # then merge by hue-family, not just distance
+    n_clusters = min(12, max(4, len(set(map(tuple, (pixels[::50] // 48) * 48))) // 2))
     kmeans = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
     kmeans.fit(pixels[::10])
     centers = kmeans.cluster_centers_.astype(int)
     labels_sub = kmeans.predict(pixels[::10])
     counts = np.bincount(labels_sub, minlength=len(centers))
 
-    # Merge similar clusters (RGB distance < 80)
-    # Less aggressive than before — preserves distinct colors in complex logos
+    def _hue_family(c):
+        """Classify a color into a hue family for smart merging."""
+        r, g, b = int(c[0]), int(c[1]), int(c[2])
+        if r > 200 and g > 200 and b > 200: return "white"
+        if r < 50 and g < 50 and b < 50: return "black"
+        if r > 150 and g < 100 and b < 100: return "red"
+        if g > 150 and r < 100 and b < 100: return "green"
+        if b > 150 and r < 100 and g < 100: return "blue"
+        if r > 150 and g > 120 and b < 80: return "yellow"
+        if r > 100 and g > 100 and b > 100 and max(r,g,b) - min(r,g,b) < 40: return "gray"
+        return f"other_{r//64}_{g//64}_{b//64}"
+
+    # Merge clusters within SAME hue family + close distance
     merged = []
     used = set()
     for i in range(len(centers)):
         if i in used:
             continue
         group = [i]
+        family_i = _hue_family(centers[i])
         for j in range(i + 1, len(centers)):
             if j in used:
                 continue
+            family_j = _hue_family(centers[j])
             dist = np.sqrt(np.sum((centers[i].astype(float) - centers[j].astype(float)) ** 2))
-            if dist < 80:
+            # Merge if: same family OR very close distance
+            if family_i == family_j or dist < 50:
                 group.append(j)
                 used.add(j)
         used.add(i)
-        # Weighted average of merged centers
         total_count = sum(counts[k] for k in group)
         avg_center = np.average([centers[k] for k in group], weights=[counts[k] for k in group], axis=0).astype(int)
         merged.append({"center": avg_center, "count": total_count})
@@ -142,7 +152,7 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
     # Drop tiny clusters (< 5% of image) — these are always anti-alias edge artifacts
     design_colors = [
         m for m in merged[1:]
-        if m["count"] / total_pixels > 0.02
+        if m["count"] / total_pixels > 0.01
     ]
     dropped = len(merged) - 1 - len(design_colors)
     if dropped > 0:
