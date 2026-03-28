@@ -211,7 +211,7 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
     ]
     dropped = len(merged) - 1 - len(design_colors)
     if dropped > 0:
-        print(f"  Dropped {dropped} tiny color clusters (< 5% of pixels)")
+        print(f"  Dropped {dropped} tiny color clusters (< 1% of pixels)")
 
     # Build color definitions with TIGHT thresholds
     color_defs = {}
@@ -248,96 +248,6 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
 
     return color_defs, transparent_color
 
-
-def _snap_to_palette(img: np.ndarray, centers: np.ndarray) -> np.ndarray:
-    """Snap every pixel to the nearest color in the palette."""
-    h, w = img.shape[:2]
-    flat = img.reshape(-1, 3).astype(np.float32)
-    dists = ((flat[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
-    nearest = dists.argmin(axis=1)
-    return centers[nearest].astype(np.uint8).reshape(h, w, 3)
-
-
-def _snap_to_hue_families(img: np.ndarray) -> np.ndarray:
-    """Group ALL pixels by hue family and snap each family to ONE representative color.
-
-    This is THE key function for clean vectorization:
-    - All yellow/gold shades → one yellow
-    - All green shades → one green
-    - All red shades → one red
-    - All black/dark shades → one black
-    - All white/light shades → one white
-    - Remaining → nearest family
-
-    Works on both flat AND gradient images because it groups by HUE, not by exact color.
-    """
-    h, w = img.shape[:2]
-    pixels = img.reshape(-1, 3)
-    r, g, b = pixels[:, 0].astype(int), pixels[:, 1].astype(int), pixels[:, 2].astype(int)
-
-    # Define hue families — generous ranges to catch gradient variations
-    # Key: yellow/gold/orange/brown all merge into "warm" to handle ribbon gradients
-    families = {
-        "white":  (r > 200) & (g > 200) & (b > 200),
-        "black":  (r < 60) & (g < 60) & (b < 60),
-        "gray":   (np.abs(r - g) < 25) & (np.abs(r - b) < 25) & (r >= 60) & (r <= 200),
-        "red":    (r > 130) & (g < 90) & (b < 90),
-        "green":  (g > 80) & (r < g) & (b < g),
-        "blue":   (b > 120) & (r < 100) & (g < 100),
-        "warm":   (r > 100) & (g > 50) & (b < 120) & (r > b) & (r > g * 0.7),  # yellow+gold+orange+brown
-        "purple": (r > 70) & (b > 70) & (g < 70),
-        "cyan":   (g > 80) & (b > 80) & (r < 80),
-        "pink":   (r > 150) & (b > 70) & (g < 120),
-    }
-
-    # Find the representative color (median) for each family
-    palette = []
-    palette_names = []
-    total = len(pixels)
-    bg_index = -1  # Track which palette entry is background
-
-    for name, mask in families.items():
-        count = mask.sum()
-        if count > total * 0.005:  # At least 0.5% of image
-            family_pixels = pixels[mask]
-            median_color = np.median(family_pixels, axis=0).astype(int)
-
-            # Snap common colors to pure values
-            if name == "white":
-                median_color = np.array([255, 255, 255])
-            elif name == "black":
-                median_color = np.array([0, 0, 0])
-
-            # Rule: if any family > 30% of pixels, it's the background
-            # Lock it to pure white/black so design pixels don't leak into it
-            if count > total * 0.30:
-                if name == "white" or name == "gray":
-                    median_color = np.array([255, 255, 255])
-                    bg_index = len(palette)
-                elif name == "black":
-                    median_color = np.array([0, 0, 0])
-                    bg_index = len(palette)
-
-            palette.append(median_color.astype(np.float32))
-            palette_names.append(name)
-
-    if len(palette) < 2:
-        return img  # Not enough families detected, return as-is
-
-    # Assign EVERY pixel to nearest palette color
-    centers = np.array(palette, dtype=np.float32)
-    flat = pixels.astype(np.float32)
-    dists = ((flat[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
-
-    # If background detected, increase its distance penalty so design pixels
-    # don't accidentally get assigned to background
-    if bg_index >= 0:
-        dists[:, bg_index] *= 1.5  # Make background 50% harder to match
-
-    nearest = dists.argmin(axis=1)
-    result = centers[nearest].astype(np.uint8).reshape(h, w, 3)
-
-    return result
 
 
 def _detect_gradients(img: np.ndarray) -> bool:
@@ -697,15 +607,3 @@ async def _convert_with_vtracer_full(
     return result
 
 
-def _nameColor(rgb: list) -> str:
-    """Name a color based on RGB values."""
-    r, g, b = int(rgb[0]), int(rgb[1]), int(rgb[2])
-    if r > 200 and g > 200 and b > 200: return "white"
-    if r < 40 and g < 40 and b < 40: return "black"
-    if r > 150 and g < 80 and b < 80: return "red"
-    if g > 150 and r < 80 and b < 80: return "green"
-    if b > 150 and r < 80 and g < 80: return "blue"
-    if r > 180 and g > 150 and b < 80: return "yellow"
-    if r > 180 and g > 100 and b < 60: return "orange"
-    if r > 100 and g > 100 and b > 100 and r < 200: return "gray"
-    return f"color_{r:02x}{g:02x}{b:02x}"

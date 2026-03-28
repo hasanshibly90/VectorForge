@@ -135,21 +135,13 @@ def group_svg_colors(
             "original_colors": len(members),
         })
 
-    # Snap near-white and near-black to pure values
+    # Apply color_remap: recolor all paths to their family representative
     for elem in root.iter():
         tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
         if tag == "path":
             fill = (elem.get("fill") or "").strip().upper()
-            if len(fill) == 7 and fill.startswith("#"):
-                r = int(fill[1:3], 16)
-                g = int(fill[3:5], 16)
-                b = int(fill[5:7], 16)
-                # Near-white → pure white
-                if r > 210 and g > 210 and b > 210:
-                    elem.set("fill", "#FFFFFF")
-                # Near-black → pure black
-                elif r < 45 and g < 45 and b < 45:
-                    elem.set("fill", "#000000")
+            if fill in color_remap:
+                elem.set("fill", color_remap[fill])
 
     # Write modified SVG
     ET.register_namespace("", "http://www.w3.org/2000/svg")
