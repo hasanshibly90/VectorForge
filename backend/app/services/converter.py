@@ -508,14 +508,21 @@ async def _convert_with_vtracer_full(
     d = settings.detail_level
     s = settings.smoothing
 
-    # Step 1: Simple PNG conversion — NO preprocessing
-    # Raw vtracer at native resolution produced the best output (2.7s, all colors)
-    # Every preprocessing attempt (upscale, blur, bilateral) made things worse
-    if input_path.suffix.lower() not in (".png", ".bmp"):
-        png_path = output_dir / "input.png"
-        with Image.open(input_path) as img:
-            img.save(png_path, "PNG")
-        input_path = png_path
+    # Step 1: Upscale to minimum 3000px for smooth curves, then save as PNG
+    # Without upscaling, vtracer traces pixel boundaries = jagged staircase edges
+    # Only upscale — no blur/bilateral/background removal (those distort colors)
+    png_path = output_dir / "input_upscaled.png"
+    with Image.open(input_path) as img:
+        rgb = img.convert("RGB")
+        w0, h0 = rgb.size
+        min_dim = 3000
+        scale = min_dim / max(w0, h0)
+        if scale > 1.0:
+            new_w, new_h = int(w0 * scale), int(h0 * scale)
+            rgb = rgb.resize((new_w, new_h), Image.LANCZOS)
+            print(f"  Upscaled: {w0}x{h0} -> {new_w}x{new_h} for smooth curves")
+        rgb.save(str(png_path), "PNG")
+    input_path = png_path
 
     # Step 2: vtracer with good defaults
     filter_speckle = max(2, 6 - d // 2)
