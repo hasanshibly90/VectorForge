@@ -143,12 +143,12 @@ def _auto_detect_colors(input_path: Path) -> tuple[dict, str]:
     def _hue_family(c):
         """Classify a color into a hue family for smart merging."""
         r, g, b = int(c[0]), int(c[1]), int(c[2])
-        if r > 220 and g > 220 and b > 220: return "white"
+        if r > 240 and g > 240 and b > 240: return "white"
         if r < 50 and g < 50 and b < 50: return "black"
         if r > 150 and g < 100 and b < 100: return "red"
         if g > 150 and r < 100 and b < 100: return "green"
         if b > 150 and r < 100 and g < 100: return "blue"
-        if r > 100 and g > 50 and b < r and r > b + 30: return "warm"
+        if r > 100 and g > 50 and b < r and r > b + 15: return "warm"
         if r > 100 and g > 100 and b > 100 and max(r,g,b) - min(r,g,b) < 40: return "gray"
         return f"other_{r//64}_{g//64}_{b//64}"
 
@@ -353,10 +353,10 @@ async def convert_raster_to_vector(
                     input_path=str(input_path),
                     output_dir=str(output_dir),
                     upscale_target=6400,
-                    gaussian_sigma=3.0,
-                    potrace_alphamax=1.334,
-                    potrace_turdsize=500,
-                    min_color_pct=2.0,
+                    gaussian_sigma=1.8,
+                    potrace_alphamax=1.0,
+                    potrace_turdsize=100,
+                    min_color_pct=1.0,
                 )
                 result = ConversionResult()
                 svg_path = Path(pipeline_result["combined_svg"])
