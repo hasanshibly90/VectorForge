@@ -80,40 +80,24 @@ def _detect_color_families(img: np.ndarray, min_pct: float = 0.5) -> list[dict]:
     return detected
 
 
-def _trace_mask_with_potrace(
+def _trace_mask_with_potrace_raw(
     mask: np.ndarray,
     color_hex: str,
     name: str,
     output_dir: Path,
     potrace_bin: str,
-    sigma: float = 2.5,
     alphamax: float = 1.334,
     turdsize: int = 100,
 ) -> str:
-    """Trace a binary mask with potrace. Returns SVG path XML."""
+    """Trace a pre-smoothed binary mask with potrace. Returns SVG path XML.
+
+    Unlike _trace_mask_with_potrace, this skips smoothing/cleanup — expects
+    the mask to already be smoothed and overlap-resolved.
+    """
     h, w = mask.shape
 
-    # Gaussian smooth the mask edges for smoother Bezier curves
-    smoothed = gaussian_filter(mask.astype(np.float64), sigma=sigma)
-    smoothed = (smoothed > 0.5).astype(np.uint8)
-
-    # Morphological cleanup: close gaps then open to remove specks
-    struct = ndimage.generate_binary_structure(2, 2)
-    smoothed = ndimage.binary_closing(smoothed, structure=struct, iterations=3)
-    smoothed = ndimage.binary_opening(smoothed, structure=struct, iterations=2)
-
-    # Remove small connected components (speckles)
-    labeled, n = ndimage.label(smoothed, structure=struct)
-    if n > 0:
-        sizes = ndimage.sum(smoothed, labeled, range(1, n + 1))
-        largest = max(sizes) if len(sizes) > 0 else 0
-        for i, sz in enumerate(sizes):
-            # Remove components < 1% of largest OR < turdsize pixels
-            if sz < max(turdsize, largest * 0.01):
-                smoothed[labeled == (i + 1)] = 0
-
     # Potrace traces BLACK pixels — invert
-    bw = np.where(smoothed, 0, 255).astype(np.uint8)
+    bw = np.where(mask, 0, 255).astype(np.uint8)
 
     tmp_pgm = output_dir / f"_tmp_{name}.pgm"
     tmp_svg = output_dir / f"_tmp_{name}_raw.svg"
@@ -260,9 +244,30 @@ def potrace_hybrid_convert(
     bg_family = families[0]
     design_families = families[1:]
 
-    # Assign unmatched pixels to nearest family
-    r, g, b = pixels[:, :, 0].astype(int), pixels[:, :, 1].astype(int), pixels[:, :, 2].astype(int)
+    # Resolve overlaps: each pixel belongs to exactly ONE family
+    # Priority: assign each pixel to the family whose center is closest
     assigned = np.zeros((h, w), dtype=bool)
+
+    # First pass: resolve pixels claimed by multiple families
+    overlap_map = np.zeros((h, w), dtype=int)  # count of families claiming each pixel
+    for f in families:
+        overlap_map += f["mask"].astype(int)
+
+    contested = overlap_map > 1
+    if contested.any():
+        contested_y, contested_x = np.where(contested)
+        contested_pixels = pixels[contested].astype(float)
+        centers = np.array([f["rgb"] for f in families], dtype=float)
+        dists = np.sqrt(((contested_pixels[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2))
+        nearest = dists.argmin(axis=1)
+        # Clear all families for contested pixels, assign to nearest only
+        for i, f in enumerate(families):
+            f["mask"][contested_y, contested_x] = False
+            match = nearest == i
+            if match.any():
+                f["mask"][contested_y[match], contested_x[match]] = True
+
+    # Second pass: assign unmatched pixels to nearest family
     for f in families:
         assigned |= f["mask"]
 
@@ -276,19 +281,58 @@ def potrace_hybrid_convert(
             for i, f in enumerate(families):
                 match = nearest == i
                 if match.any():
-                    ys = unassigned_y[match]
-                    xs = unassigned_x[match]
-                    f["mask"][ys, xs] = True
+                    f["mask"][unassigned_y[match], unassigned_x[match]] = True
 
-    # Trace each design family with potrace
+    # Pre-smooth all design masks, then resolve overlaps AFTER smoothing
+    # This prevents Gaussian expansion from making layers bleed into each other
+    struct = ndimage.generate_binary_structure(2, 2)
+    smoothed_masks = {}
+    for f in design_families:
+        sm = gaussian_filter(f["mask"].astype(np.float64), sigma=gaussian_sigma)
+        sm = (sm > 0.5).astype(np.uint8)
+        sm = ndimage.binary_closing(sm, structure=struct, iterations=3)
+        sm = ndimage.binary_opening(sm, structure=struct, iterations=2)
+        # Remove small speckles
+        labeled, n = ndimage.label(sm, structure=struct)
+        if n > 0:
+            sizes = ndimage.sum(sm, labeled, range(1, n + 1))
+            largest = max(sizes) if len(sizes) > 0 else 0
+            for i, sz in enumerate(sizes):
+                if sz < max(potrace_turdsize, largest * 0.01):
+                    sm[labeled == (i + 1)] = 0
+        smoothed_masks[f["name"]] = sm.astype(bool)
+
+    # Resolve post-smoothing overlaps: assign each contested pixel to
+    # the family whose color center is nearest (vectorized for speed)
+    all_names = [f["name"] for f in design_families]
+    all_centers = np.array([f["rgb"] for f in design_families], dtype=float)
+
+    # Stack all smoothed masks to find contested pixels
+    mask_stack = np.stack([smoothed_masks[n] for n in all_names], axis=0)  # (N, H, W)
+    claim_count = mask_stack.sum(axis=0)  # how many families claim each pixel
+    contested = claim_count > 1
+
+    if contested.any():
+        cy, cx = np.where(contested)
+        contested_pixels = pixels[cy, cx].astype(float)  # (M, 3)
+        # Distance from each contested pixel to each family center
+        dists = np.sqrt(((contested_pixels[:, None, :] - all_centers[None, :, :]) ** 2).sum(axis=2))  # (M, N)
+        winner = dists.argmin(axis=1)  # (M,)
+        # Clear all families for contested pixels, assign winner only
+        for i, name in enumerate(all_names):
+            smoothed_masks[name][cy, cx] = False
+            wins = winner == i
+            if wins.any():
+                smoothed_masks[name][cy[wins], cx[wins]] = True
+
+    # Trace each design family with potrace (using pre-smoothed, non-overlapping masks)
     layer_svgs = {}
     layer_info = []
 
     for f in design_families:
-        path_xml = _trace_mask_with_potrace(
-            f["mask"], f["hex"], f"{stem}_{f['name']}", out,
-            potrace_bin, sigma=gaussian_sigma,
-            alphamax=potrace_alphamax, turdsize=potrace_turdsize,
+        path_xml = _trace_mask_with_potrace_raw(
+            smoothed_masks[f["name"]], f["hex"], f"{stem}_{f['name']}", out,
+            potrace_bin, alphamax=potrace_alphamax, turdsize=potrace_turdsize,
         )
         if path_xml:
             layer_svgs[f["name"]] = path_xml
