@@ -41,13 +41,13 @@ def _detect_color_families(img: np.ndarray, min_pct: float = 0.5) -> list[dict]:
     total = len(pixels)
 
     families = {
-        "white":  (r > 200) & (g > 200) & (b > 200),
+        "white":  (r > 220) & (g > 220) & (b > 220),
         "black":  (r < 60) & (g < 60) & (b < 60),
         "gray":   (np.abs(r - g) < 25) & (np.abs(r - b) < 25) & (r >= 60) & (r <= 200),
         "red":    (r > 130) & (g < 90) & (b < 90),
         "green":  (g > 80) & (r < g) & (b < g),
         "blue":   (b > 120) & (r < 100) & (g < 100),
-        "warm":   (r > 100) & (g > 50) & (b < 120) & (r > b) & (r > g * 0.7),
+        "warm":   (r > 100) & (g > 50) & (b < r) & (r > b + 30) & (r > g * 0.7),
         "purple": (r > 70) & (b > 70) & (g < 70),
         "cyan":   (g > 80) & (b > 80) & (r < 80),
         "pink":   (r > 150) & (b > 70) & (g < 120),

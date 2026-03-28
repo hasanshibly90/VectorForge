@@ -29,13 +29,13 @@ def _rgb_to_hex(r: int, g: int, b: int) -> str:
 
 def _hue_family(r: int, g: int, b: int) -> str:
     """Classify RGB into a hue family."""
-    if r > 200 and g > 200 and b > 200: return "white"
+    if r > 220 and g > 220 and b > 220: return "white"
     if r < 60 and g < 60 and b < 60: return "black"
     if abs(r - g) < 25 and abs(r - b) < 25 and 60 <= r <= 200: return "gray"
     if r > 130 and g < 90 and b < 90: return "red"
     if g > 80 and r < g and b < g: return "green"
     if b > 120 and r < 100 and g < 100: return "blue"
-    if r > 100 and g > 50 and b < 120 and r > b: return "warm"
+    if r > 100 and g > 50 and b < r and r > b + 30: return "warm"
     if r > 70 and b > 70 and g < 70: return "purple"
     if g > 80 and b > 80 and r < 80: return "cyan"
     if r > 150 and b > 70 and g < 120: return "pink"
