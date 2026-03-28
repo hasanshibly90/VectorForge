@@ -265,9 +265,10 @@ def _detect_gradients(img: np.ndarray) -> bool:
     # Quantize to 16-level buckets
     quantized = (sub // 16) * 16
     unique_colors = len(set(map(tuple, quantized.reshape(-1, 3))))
-    # Flat logos: 3-30 unique colors. Gradient images: 50+.
-    # JPEG compression adds noise, so real-world gradient images have 100+.
-    return unique_colors > 50
+    # Flat logos: 3-30 unique colors (even with JPEG noise: 100-200).
+    # True gradient/photo: 500+ unique colors.
+    # Threshold 500 ensures JPEG-compressed logos still route to potrace.
+    return unique_colors > 500
 
 
 def _map_settings_to_pipeline(settings: ConversionSettings) -> dict:
@@ -335,20 +336,15 @@ async def convert_raster_to_vector(
             input_path, output_dir, settings, stem, color_defs, transparent_color, potrace_bin
         )
     else:
-        # Color mode: auto-detect flat vs gradient → choose engine
-        with Image.open(input_path) as _img:
-            _pixels = np.array(_img.convert("RGB"))
-        has_gradients = _detect_gradients(_pixels)
-
+        # Color mode: always try potrace_hybrid first for CNC-grade curves
+        # Only fall back to vtracer if potrace binary is not available
         use_potrace_hybrid = False
-        if not has_gradients:
-            # FLAT image (logo, icon) → potrace hybrid for CNC-grade curves
-            try:
-                from app.services.potrace_hybrid import _find_potrace
-                if _find_potrace():
-                    use_potrace_hybrid = True
-            except Exception:
-                pass
+        try:
+            from app.services.potrace_hybrid import _find_potrace
+            if _find_potrace():
+                use_potrace_hybrid = True
+        except Exception:
+            pass
 
         if use_potrace_hybrid:
             try:
@@ -396,7 +392,7 @@ async def convert_raster_to_vector(
                     input_path, output_dir, settings, stem, custom_colors_hex=custom_colors_hex
                 )
         else:
-            # GRADIENT image → vtracer handles gradients naturally
+            # Potrace not available — fall back to vtracer
             result = await _convert_with_vtracer_full(
                 input_path, output_dir, settings, stem, custom_colors_hex=custom_colors_hex
             )
